@@ -12,7 +12,7 @@ pub struct Ciphertext<E: Pairing> {
     pub ct3: PairingOutput<E>,
 }
 
-pub fn verify<E: Pairing>(d: &Dealer<E>, ek: &EncKey<E>, m: &Vec<u8>, t: usize, e: usize, be: E::G1, aggr: AggrSig<E>) -> bool {
+pub fn verify<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, m: &Vec<u8>, t: usize, e: usize, be: E::G1, aggr: AggrSig<E>) -> bool {
     let mut mm = m.clone();
     mm.extend(e.to_be_bytes());
     let tag = utils::hash_g2::<E>(&mm);
@@ -33,7 +33,7 @@ pub fn verify<E: Pairing>(d: &Dealer<E>, ek: &EncKey<E>, m: &Vec<u8>, t: usize, 
     p6 == E::pairing(d.lagrange_basis_commit.0[0], E::G2::generator())
 }
 
-pub fn encrypt<E: Pairing>(d: &Dealer<E>, ek: &EncKey<E>, msg: PairingOutput<E>, t: usize, e: usize, be: E::G1) -> Ciphertext<E> {
+pub fn encrypt<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, msg: PairingOutput<E>, t: usize, e: usize, be: E::G1) -> Ciphertext<E> {
     let mut rng = thread_rng();
     let s: Vec<E::ScalarField> = (0..6).map(|_| E::ScalarField::rand(&mut rng)).collect();
 

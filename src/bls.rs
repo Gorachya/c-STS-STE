@@ -29,7 +29,9 @@ impl<E: Pairing> BLSKey<E> {
     pub fn mul_sk(&self, p: E::G1) -> E::G1 {
         p * self.sk
     }
+}
 
+impl<E: Pairing + utils::HashToG2<E>> BLSKey<E> {
     pub fn sign(&self, msg: &Vec<u8>) -> E::G2 {
         let hash_msg = utils::hash_g2::<E>(msg);
 
@@ -37,7 +39,7 @@ impl<E: Pairing> BLSKey<E> {
     }
 }
 
-pub fn verify<E: Pairing>(pk: E::G1, msg: &Vec<u8>, sig: E::G2) -> bool {
+pub fn verify<E: Pairing + utils::HashToG2<E>>(pk: E::G1, msg: &Vec<u8>, sig: E::G2) -> bool {
     let p1 = E::pairing(pk, utils::hash_g2::<E>(msg));
     let p2 = E::pairing(E::G1::generator(), sig);
 
