@@ -3,6 +3,7 @@ use ark_ff::{Field, PrimeField, batch_inversion};
 
 use crate::{dealer::{AggrKey, Dealer}, verify::Ciphertext, utils};
 
+#[derive(Clone)]
 pub struct AggrSig<E: Pairing> {
     pub s0: E::G2,
     pub s1: E::G1,

@@ -10,6 +10,7 @@ pub struct BLSKey<E: Pairing> {
     pub pk: E::G1,
 }
 
+#[derive(Clone)]
 pub struct BLSSignature<E: Pairing> {
     pub signature: E::G2Affine,
     pub proof: EqDlProof<E::ScalarField>,

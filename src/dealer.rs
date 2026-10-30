@@ -9,6 +9,7 @@ use rand::thread_rng;
 
 use crate::utils;
 
+#[derive(Clone)]
 pub struct Dealer<E: Pairing> {
     pub total_plus_1: E::ScalarField,
     pub crs: (Vec<E::G1Affine>, Vec<E::G2Affine>),
@@ -41,6 +42,7 @@ pub struct EncKey<E: Pairing> {
     pub z: E::G2,
 }
 
+#[derive(Clone)]
 pub struct Trapdoor<E: Pairing> {
     pub total_plus_1: E::ScalarField,
     pub powers_of_tau: Vec<E::ScalarField>,

@@ -32,3 +32,11 @@ harness = false
 [[bench]]
 name = "bls"
 harness = false
+
+[[bench]]
+name = "aggregation"
+harness = false
+
+[[bench]]
+name = "ste"
+harness = false
