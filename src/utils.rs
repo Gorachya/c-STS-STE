@@ -1,44 +1,78 @@
-use ark_bls12_381::{Bls12_381, g2::Config as G2Config};
-use ark_ec::{
-    hashing::{
-        curve_maps::wb::WBMap,
-        map_to_curve_hasher::MapToCurveBasedHasher,
-        HashToCurve,
-    },
-    pairing::Pairing,
-};
+use ark_ec::{hashing::HashToCurve, CurveGroup, pairing::Pairing};
 use ark_ff::PrimeField;
-use ark_ff::fields::field_hashers::DefaultFieldHasher;
+use ark_serialize::CanonicalSerialize;
 
 use ark_poly::{DenseUVPolynomial, univariate::DensePolynomial};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
-const HASH_TO_G2_DOMAIN: &[u8] = b"CSTE_G2_V1";
-
-pub trait HashToG2<E: Pairing> {
-    fn hash_to_g2(message: &[u8]) -> E::G2;
+#[derive(Clone, Copy, Debug)]
+pub struct EqDlProof<F: PrimeField> {
+    pub challenge: F,
+    pub response: F,
 }
 
-impl HashToG2<Bls12_381> for Bls12_381 {
-    fn hash_to_g2(message: &[u8]) -> <Bls12_381 as Pairing>::G2 {
-        type G2Hasher = MapToCurveBasedHasher<
-            <Bls12_381 as Pairing>::G2,
-            DefaultFieldHasher<Sha256, 128>,
-            WBMap<G2Config>,
-        >;
+fn append_serialized(buffer: &mut Vec<u8>, value: &impl CanonicalSerialize) {
+    let mut bytes = Vec::new();
+    value.serialize_uncompressed(&mut bytes).expect("group element serialization failed");
+    buffer.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+    buffer.extend_from_slice(&bytes);
+}
 
-        let hasher = G2Hasher::new(HASH_TO_G2_DOMAIN).expect("invalid hash-to-G2 parameters");
-        hasher.hash(message)
-            .expect("failed to hash message to G2")
-            .into()
+fn eq_dl_challenge<F, G1, G2>(a: &G1, x: &G1, b: &G2, y: &G2, alpha: &G1, beta: &G2) -> F
+where
+    F: PrimeField,
+    G1: CurveGroup<ScalarField = F>,
+    G1::Affine: CanonicalSerialize,
+    G2: CurveGroup<ScalarField = F>,
+    G2::Affine: CanonicalSerialize,
+{
+    let mut transcript = b"CSTE_EQ_DL_V1".to_vec();
+    append_serialized(&mut transcript, &a.clone().into_affine());
+    append_serialized(&mut transcript, &x.clone().into_affine());
+    append_serialized(&mut transcript, &b.clone().into_affine());
+    append_serialized(&mut transcript, &y.clone().into_affine());
+    append_serialized(&mut transcript, &alpha.clone().into_affine());
+    append_serialized(&mut transcript, &beta.clone().into_affine());
+    F::from_le_bytes_mod_order(&Sha256::digest(transcript))
+}
+
+pub fn eq_dl_prove<F, G1, G2>(a: G1, x: G1, b: G2, y: G2, secret: F) -> EqDlProof<F>
+where
+    F: PrimeField,
+    G1: CurveGroup<ScalarField = F>,
+    G1::Affine: CanonicalSerialize,
+    G2: CurveGroup<ScalarField = F>,
+    G2::Affine: CanonicalSerialize,
+{
+    let randomness = F::rand(&mut rand::thread_rng());
+    let alpha = a * randomness;
+    let beta = b * randomness;
+    let challenge = eq_dl_challenge(&a, &x, &b, &y, &alpha, &beta);
+    EqDlProof {
+        challenge,
+        response: randomness + challenge * secret,
     }
 }
 
-pub fn hash_g2<E: Pairing>(m: &[u8]) -> E::G2
+pub fn eq_dl_verify<F, G1, G2>(a: G1, x: G1, b: G2, y: G2, proof: EqDlProof<F>) -> bool
 where
-    E: HashToG2<E>,
+    F: PrimeField,
+    G1: CurveGroup<ScalarField = F>,
+    G1::Affine: CanonicalSerialize,
+    G2: CurveGroup<ScalarField = F>,
+    G2::Affine: CanonicalSerialize,
 {
-    E::hash_to_g2(m)
+    let alpha = a * proof.response - x * proof.challenge;
+    let beta = b * proof.response - y * proof.challenge;
+    proof.challenge == eq_dl_challenge(&a, &x, &b, &y, &alpha, &beta)
+}
+
+pub fn hash_g2<E, H>(m: &[u8], hasher: &H) -> E::G2
+where
+    E: Pairing,
+    H: HashToCurve<E::G2>,
+{
+    hasher.hash(m).expect("failed to hash message to G2").into()
 }
 
 pub fn is_a_power_of_two(n: usize) -> bool {
@@ -70,8 +104,12 @@ pub fn poly_on_points_zero<F: PrimeField>(points: &Vec<F>, start: F) -> DensePol
 #[cfg(test)]
 mod tests {
     use ark_bls12_381::{Bls12_381, Fr};
+    use ark_bls12_381::g2::Config as G2Config;
+    use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurveBasedHasher, HashToCurve};
+    use ark_ff::fields::field_hashers::DefaultFieldHasher;
     use ark_ff::Zero;
     use ark_poly::Polynomial;
+    use sha2::Sha256;
 
     use super::{hash_g2, poly_on_points_zero};
 
@@ -84,8 +122,15 @@ mod tests {
 
     #[test]
     fn hash_to_g2_is_deterministic_and_nonzero() {
-        let first = hash_g2::<Bls12_381>(b"c-ste hash test");
-        let second = hash_g2::<Bls12_381>(b"c-ste hash test");
+        type G2Hasher = MapToCurveBasedHasher<
+            <Bls12_381 as ark_ec::pairing::Pairing>::G2,
+            DefaultFieldHasher<Sha256, 128>,
+            WBMap<G2Config>,
+        >;
+        let hasher = G2Hasher::new(b"CSTE_BLS12381_G2_V1_TEST")
+            .expect("invalid hash-to-G2 parameters");
+        let first = hash_g2::<Bls12_381, _>(b"c-ste hash test", &hasher);
+        let second = hash_g2::<Bls12_381, _>(b"c-ste hash test", &hasher);
 
         assert_eq!(first, second);
         assert!(!first.is_zero());

@@ -1,4 +1,4 @@
-use ark_ec::{CurveGroup, PrimeGroup, pairing::{Pairing, PairingOutput}};
+use ark_ec::{CurveGroup, PrimeGroup, hashing::HashToCurve, pairing::{Pairing, PairingOutput}};
 use ark_ff::{BigInteger, PrimeField, Zero};
 use ark_std::UniformRand;
 
@@ -12,10 +12,10 @@ pub struct Ciphertext<E: Pairing> {
     pub ct3: PairingOutput<E>,
 }
 
-pub fn verify<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, m: &Vec<u8>, t: usize, e: usize, be: E::G1, aggr: AggrSig<E>) -> bool {
+pub fn verify<E: Pairing, H: HashToCurve<E::G2>>(d: &Dealer<E>, ek: &EncKey<E>, m: &Vec<u8>, t: usize, e: usize, be: E::G1, aggr: AggrSig<E>, hasher: &H) -> bool {
     let mut mm = m.clone();
     mm.extend(e.to_be_bytes());
-    let tag = utils::hash_g2::<E>(&mm);
+    let tag = utils::hash_g2::<E, H>(&mm, hasher);
 
     let p1 = E::multi_pairing([ek.c, aggr.s1, aggr.s2], [aggr.s0, E::G2::generator(), ek.z]);
     let p0 = E::pairing(aggr.s3, d.crs.1[1]);
@@ -33,7 +33,7 @@ pub fn verify<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, m:
     p6 == E::pairing(d.lagrange_basis_commit.0[0], E::G2::generator())
 }
 
-pub fn encrypt<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, msg: PairingOutput<E>, t: usize, e: usize, be: E::G1) -> Ciphertext<E> {
+pub fn encrypt<E: Pairing, H: HashToCurve<E::G2>>(d: &Dealer<E>, ek: &EncKey<E>, msg: PairingOutput<E>, t: usize, e: usize, be: E::G1, hasher: &H) -> Ciphertext<E> {
     let mut rng = thread_rng();
     let s: Vec<E::ScalarField> = (0..6).map(|_| E::ScalarField::rand(&mut rng)).collect();
 
@@ -41,7 +41,7 @@ pub fn encrypt<E: Pairing + utils::HashToG2<E>>(d: &Dealer<E>, ek: &EncKey<E>, m
 
     let mut m = ct1.into_bigint().to_bytes_be();
     m.extend(e.to_be_bytes());
-    let tag = utils::hash_g2::<E>(&m);
+    let tag = utils::hash_g2::<E, H>(&m, hasher);
 
     let ct2 = (
         ek.c * s[0] + d.crs.0[t + 1] * s[3] + be * s[4] + E::G1::generator() * s[5],

@@ -5,7 +5,7 @@ use ark_ff::{FftField, Field};
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, Evaluations, Radix2EvaluationDomain, univariate::DensePolynomial};
 use ark_std::Zero;
 
-use crate::{bls::BLSKey, dealer::{Dealer, Hints}};
+use crate::{bls::BLSKey, dealer::{Dealer, Hints}, utils};
 
 pub struct Member<E: Pairing> {
     pub id: usize,
@@ -64,11 +64,19 @@ impl<E: Pairing> Member<E> {
         ).collect();
 
         Hints {
+            id: self.id,
             h1: h1.into_affine(),
             h2: h2.into_affine(),
             h3: h3.into_affine(),
             h4: h4.into_affine(),
             h5,
+            proof: utils::eq_dl_prove(
+                E::G1::generator(),
+                self.key.pk,
+                li_tau,
+                h1,
+                self.key.sk,
+            ),
         }
     }
 
@@ -113,11 +121,19 @@ impl<E: Pairing> Member<E> {
         );
 
         Hints {
+            id: self.id,
             h1: h1.into_affine(),
             h2: h2.into_affine(),
             h3: h3.into_affine(),
             h4: h4.into_affine(),
             h5,
+            proof: utils::eq_dl_prove(
+                E::G1::generator(),
+                self.key.pk,
+                li_tau,
+                h1,
+                self.key.sk,
+            ),
         }
     }
 }

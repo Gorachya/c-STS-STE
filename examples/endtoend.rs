@@ -1,19 +1,23 @@
 #![allow(unused_imports)]
-use ark_bls12_381::{G1Affine, G2Affine};
-use ark_ec::{CurveGroup, PrimeGroup, pairing::Pairing};
+use ark_bls12_381::{G1Affine, G2Affine, g2::Config as G2Config};
+use ark_ec::{CurveGroup, PrimeGroup, pairing::Pairing, hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurveBasedHasher, HashToCurve}};
 use ark_ff::{BigInteger, PrimeField};
+use ark_ff::fields::field_hashers::DefaultFieldHasher;
 use ark_std::{UniformRand, start_timer, end_timer};
 use std::env;
 
-use c_ste::{aggregation::{aggregate, decrypt}, committee::{committee_select, epoch_commitment, participate_select}, dealer::{Dealer, Hints}, member::Member, verify::{encrypt, verify}};
+use c_ste::{aggregation::{aggregate, decrypt}, bls::{BLSSignature, verify as bls_verify}, committee::{committee_select, epoch_commitment, participate_select}, dealer::{Dealer, Hints, hint_verify}, member::Member, verify::{encrypt, verify}};
 use rand::thread_rng;
+use sha2::Sha256;
 
 type E = ark_bls12_381::Bls12_381;
 type G1 = <E as Pairing>::G1;
 type G2 = <E as Pairing>::G2;
 type Fr = <E as Pairing>::ScalarField;
+type G2Hasher = MapToCurveBasedHasher<G2, DefaultFieldHasher<Sha256, 128>, WBMap<G2Config>>;
 
 fn main() {
+    let g2_hasher = G2Hasher::new(b"CSTE_BLS12381_G2_V1").expect("invalid hash-to-G2 parameters");
     let args: Vec<String> = env::args().collect();
     if args.len() != 5 {
         eprintln!("Usage: cargo run --example endtoend --release -- sign/encrypt <N> <n> <t>");
@@ -51,7 +55,9 @@ fn main() {
     
     let hints_timer = start_timer!(|| "Generate hints");
     // let hints: Vec<Hints<E>> = members.iter().map(|mb| mb.hint_gen_naive(&d)).collect();
+    // let hints: Vec<Hints<E>> = members.iter().map(|mb| mb.hint_gen_lagrange(&d)).collect();
     let pks: Vec<G1Affine> = members.iter().map(|mb| mb.key.pk.into_affine()).collect();
+    // assert!(hints.iter().zip(pks.iter()).all(|(hint, pk)| hint_verify(&d, *pk, hint)));
     end_timer!(hints_timer);
     
     let preprocess_timer = start_timer!(|| "Preprocess");
@@ -75,9 +81,10 @@ fn main() {
         
         let sign_timer = start_timer!(|| "Partial Sign");
         let s = participate_select(&com_e, r);
-        let sig_s: Vec<G2Affine> = s.iter().map(
-            |&id| members[id].key.sign(&mm).into_affine()
+        let sig_s: Vec<BLSSignature<E>> = s.iter().map(
+            |&id| members[id].key.sign(&mm, &g2_hasher)
         ).collect();
+        // assert!(s.iter().zip(sig_s.iter()).all(|(&id, sig)| bls_verify(members[id].key.pk, &mm, sig, &g2_hasher)));
         end_timer!(sign_timer);
         
         let aggregate_timer = start_timer!(|| "Aggregation");
@@ -85,14 +92,14 @@ fn main() {
         end_timer!(aggregate_timer);
 
         let verify_timer = start_timer!(|| "Verification");
-        let res = verify(&d, &ek, &m, t, e, be, aggr_sig);
+        let res = verify(&d, &ek, &m, t, e, be, aggr_sig, &g2_hasher);
         end_timer!(verify_timer);
         
         assert!(res);
     }
     else { // c-STE
         let encrypt_timer = start_timer!(|| "Encryption");
-        let ct = encrypt(&d, &ek, msg, t, e, be);
+        let ct = encrypt(&d, &ek, msg, t, e, be, &g2_hasher);
         end_timer!(encrypt_timer);
         
         let mut m = ct.ct1.into_bigint().to_bytes_be();
@@ -100,8 +107,8 @@ fn main() {
         
         let sign_timer = start_timer!(|| "Partial Sign");
         let s = participate_select(&com_e, r);
-        let sig_s: Vec<G2Affine> = s.iter().map(
-            |&id| members[id].key.sign(&m).into_affine()
+        let sig_s: Vec<BLSSignature<E>> = s.iter().map(
+            |&id| members[id].key.sign(&m, &g2_hasher)
         ).collect();
         end_timer!(sign_timer);
         

@@ -1,13 +1,18 @@
-use ark_ec::{PrimeGroup, pairing::Pairing};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, pairing::Pairing, hashing::HashToCurve};
 use ark_std::UniformRand;
 
 use rand::thread_rng;
 
-use crate::utils;
+use crate::utils::{self, EqDlProof};
 
 pub struct BLSKey<E: Pairing> {
-    sk: E::ScalarField,
+    pub sk: E::ScalarField,
     pub pk: E::G1,
+}
+
+pub struct BLSSignature<E: Pairing> {
+    pub signature: E::G2Affine,
+    pub proof: EqDlProof<E::ScalarField>,
 }
 
 impl<E: Pairing> BLSKey<E> {
@@ -31,17 +36,30 @@ impl<E: Pairing> BLSKey<E> {
     }
 }
 
-impl<E: Pairing + utils::HashToG2<E>> BLSKey<E> {
-    pub fn sign(&self, msg: &Vec<u8>) -> E::G2 {
-        let hash_msg = utils::hash_g2::<E>(msg);
-
-        hash_msg * self.sk
+impl<E: Pairing> BLSKey<E> {
+    pub fn sign<H: HashToCurve<E::G2>>(&self, msg: &Vec<u8>, hasher: &H) -> BLSSignature<E> {
+        let hash_msg = utils::hash_g2::<E, H>(msg, hasher);
+        let signature = hash_msg * self.sk;
+        let proof = utils::eq_dl_prove(
+            E::G1::generator(),
+            self.pk,
+            hash_msg,
+            signature,
+            self.sk,
+        );
+        BLSSignature {
+            signature: signature.into_affine(),
+            proof,
+        }
     }
 }
 
-pub fn verify<E: Pairing + utils::HashToG2<E>>(pk: E::G1, msg: &Vec<u8>, sig: E::G2) -> bool {
-    let p1 = E::pairing(pk, utils::hash_g2::<E>(msg));
-    let p2 = E::pairing(E::G1::generator(), sig);
-
-    p1 == p2
+pub fn verify<E: Pairing, H: HashToCurve<E::G2>>(pk: E::G1, msg: &Vec<u8>, sig: &BLSSignature<E>, hasher: &H) -> bool {
+    utils::eq_dl_verify(
+        E::G1::generator(),
+        pk,
+        utils::hash_g2::<E, H>(msg, hasher),
+        sig.signature.into_group(),
+        sig.proof,
+    )
 }
