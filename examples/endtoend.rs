@@ -33,8 +33,8 @@ fn main() {
     let n: usize = args[3].parse().expect("invalid n");
     let t: usize = args[4].parse().expect("invalid t");
 
-    if total < n {
-        eprintln!("Require N >= n");
+    if n >= total {
+        eprintln!("Require N > n");
         return;
     }
 

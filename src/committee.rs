@@ -10,6 +10,8 @@ use crate::utils;
 
 // For example only
 pub fn committee_select(total: usize, n: usize, e: usize) -> Vec<usize> {
+    assert!(total >= 2, "N must include the dummy party and at least one committee candidate");
+    assert!(n < total, "committee size n must be smaller than N");
     let mut v: Vec<usize> = (1..total).collect();
 
     let mut rng = StdRng::seed_from_u64(e as u64);
