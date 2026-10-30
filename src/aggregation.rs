@@ -2,7 +2,6 @@ use ark_ec::{VariableBaseMSM, pairing::{Pairing, PairingOutput}};
 use ark_ff::{Field, PrimeField, batch_inversion};
 
 use crate::{dealer::{AggrKey, Dealer}, verify::Ciphertext, utils};
-use crate::bls::BLSSignature;
 
 pub struct AggrSig<E: Pairing> {
     pub s0: E::G2,
@@ -16,8 +15,9 @@ pub struct AggrSig<E: Pairing> {
     pub s8: E::G1,
 }
 
+// sig_s should be verified and filtered before aggregation
 pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
-    s: &Vec<usize>, com_e: &Vec<usize>, sig_s: &Vec<BLSSignature<E>>, t: usize) -> AggrSig<E> {
+    s: &Vec<usize>, com_e: &Vec<usize>, sig_s: &Vec<E::G2Affine>, t: usize) -> AggrSig<E> {
 
     assert!(s[0] == 0); // We require that the dummy party 0 (and its signature) is at first for simplicity
     let cs: Vec<usize> = com_e.iter().cloned().filter(|id| !s.contains(&id)).collect();
@@ -63,8 +63,7 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     let qxt = <E::G1 as VariableBaseMSM>::msm_bigint(&qxt_s, &b_s_bigint);
 
     // Step 4: sig
-    let sig_points: Vec<E::G2Affine> = sig_s.iter().map(|sig| sig.signature).collect();
-    let sig = (<E::G2 as VariableBaseMSM>::msm_bigint(&sig_points, &b_s_bigint)) * inv_n_plus_one;
+    let sig = (<E::G2 as VariableBaseMSM>::msm_bigint(&sig_s, &b_s_bigint)) * inv_n_plus_one;
 
     // Step 5: Bt
     let bt_s: Vec<<<E as Pairing>::ScalarField as PrimeField>::BigInt> = w_s.iter().zip(b_s.iter()).map(
@@ -114,7 +113,7 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
 }
 
 pub fn decrypt<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>, ct: &Ciphertext<E>,
-    s: &Vec<usize>, com_e: &Vec<usize>, sig_s: &Vec<BLSSignature<E>>, t: usize) -> PairingOutput<E> {
+    s: &Vec<usize>, com_e: &Vec<usize>, sig_s: &Vec<E::G2Affine>, t: usize) -> PairingOutput<E> {
 
     let aggrs = aggregate(d, ak, s, com_e, sig_s, t);
 
