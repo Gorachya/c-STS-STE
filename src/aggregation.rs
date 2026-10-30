@@ -19,7 +19,12 @@ pub struct AggrSig<E: Pairing> {
 pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     s: &Vec<usize>, com_e: &Vec<usize>, sig_s: &Vec<E::G2Affine>, t: usize) -> AggrSig<E> {
 
-    assert!(s[0] == 0); // We require that the dummy party 0 (and its signature) is at first for simplicity
+    assert!(t >= 1 && t <= com_e.len());
+    assert!(s.len() >= 1 && s[0] == 0); // We require that the dummy party 0 (and its signature) is at first for simplicity
+    assert!(s.iter().filter(|&&id| id != 0).count() >= t);
+    assert!(s.iter().all(|id| com_e.contains(id) || *id == 0));
+    assert!(s[1..].iter().all(|&id| ak.v.get(id).copied().unwrap_or(false)));
+    assert_eq!(s.len(), sig_s.len());
     let cs: Vec<usize> = com_e.iter().cloned().filter(|id| !s.contains(&id)).collect();
     assert!(com_e.len() == s.len() + cs.len() - 1); // 0
 

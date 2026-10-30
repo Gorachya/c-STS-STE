@@ -88,7 +88,14 @@ fn main() {
         end_timer!(sign_timer);
 
         // let verify_sig_timer = start_timer!(|| "Part Verification");
-        let sig_s_sig: Vec<G2Affine> = sig_s.iter().map(|sig| sig.signature).collect();
+        let sig_s_sig: Vec<G2Affine> = sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
+            (**id == 0 || (com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false)))
+                && bls_verify(members[**id].key.pk, &mm, sig, &g2_hasher)
+        }).map(|(sig, _)| sig.signature).collect();
+        let s: Vec<usize> = std::iter::once(0).chain(sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
+            (**id != 0 && com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false))
+                && bls_verify(members[**id].key.pk, &mm, sig, &g2_hasher)
+        }).map(|(_, id)| *id)).collect();
         // end_timer!(verify_sig_timer);
         
         let aggregate_timer = start_timer!(|| "Aggregation");
@@ -117,7 +124,14 @@ fn main() {
         end_timer!(sign_timer);
 
         // let verify_sig_timer = start_timer!(|| "Part Verification");
-        let sig_s_sig: Vec<G2Affine> = sig_s.iter().map(|sig| sig.signature).collect();
+        let sig_s_sig: Vec<G2Affine> = sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
+            (**id == 0 || (com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false)))
+                && bls_verify(members[**id].key.pk, &m, sig, &g2_hasher)
+        }).map(|(sig, _)| sig.signature).collect();
+        let s: Vec<usize> = std::iter::once(0).chain(sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
+            (**id != 0 && com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false))
+                && bls_verify(members[**id].key.pk, &m, sig, &g2_hasher)
+        }).map(|(_, id)| *id)).collect();
         // end_timer!(verify_sig_timer);
         
         let decrypt_timer = start_timer!(|| "Decryption");

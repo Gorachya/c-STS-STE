@@ -28,6 +28,7 @@ pub struct Hints<E: Pairing> {
 }
 
 pub struct AggrKey<E: Pairing> {
+    pub v: Vec<bool>,
     pub ak1: Vec<E::G1Affine>,
     pub ak2: Vec<E::G1Affine>,
     pub ak3: Vec<E::G1Affine>,
@@ -171,10 +172,15 @@ impl<E: Pairing> Dealer<E> {
     }
 
     // The standard O(N^2) preprocess; should not be used in practice without parallelization
-    pub fn preprocess(&self, pks: &Vec<E::G1Affine>, hints: &Vec<Hints<E>>) -> (AggrKey<E>, EncKey<E>) {
+    pub fn preprocess(&self, pks: &Vec<E::G1Affine>, hints: &Vec<Hints<E>>, v: &Vec<bool>) -> (AggrKey<E>, EncKey<E>) {
+        assert_eq!(pks.len(), hints.len());
+        assert_eq!(pks.len(), v.len());
         let n = hints[0].h5.len();
         let mut ak5 = vec![E::G1::zero(); n];
         for i in 0..n {
+            if !v[i] {
+                continue;
+            }
             for j in 0..n {
                 if i == j { continue; }
                 ak5[j] += hints[i].h5[j];
@@ -183,14 +189,15 @@ impl<E: Pairing> Dealer<E> {
 
         (
             AggrKey {
+                v: v.clone(),
                 ak1: pks.clone(),
-                ak2: hints.iter().map(|hint| hint.h2).collect(),
-                ak3: hints.iter().map(|hint| hint.h3).collect(),
-                ak4: hints.iter().map(|hint| hint.h4).collect(),
+                ak2: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h2 } else { E::G1Affine::zero() }).collect(),
+                ak3: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h3 } else { E::G1Affine::zero() }).collect(),
+                ak4: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h4 } else { E::G1Affine::zero() }).collect(),
                 ak5: ak5.iter().map(|x| x.into_affine()).collect(),
             },
             EncKey {
-                c: hints.iter().map(|hint| hint.h1).sum(),
+                c: hints.iter().zip(v.iter()).filter(|(_, valid)| **valid).map(|(hint, _)| hint.h1).sum(),
                 z: self.z,
             }
         )
@@ -210,6 +217,7 @@ impl<E: Pairing> Dealer<E> {
 
         (
             AggrKey {
+                v: vec![true; n],
                 ak1: pks.clone(),
                 ak2: (0..n).map(|i| (pks[i] * (td.lagrange_basis_tau[i] - li_0)).into_affine()).collect(),
                 ak3: (0..n).map(|i| (pks[i] * ((td.lagrange_basis_tau[i] * td.lagrange_basis_tau[i] - td.lagrange_basis_tau[i]) / z_tau)).into_affine()).collect(),
