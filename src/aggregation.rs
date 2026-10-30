@@ -128,7 +128,8 @@ pub fn decrypt<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>, ct: &Ciphertext<E>,
     )
 }
 
-// This is faster than some complex O(nlog^2n) algorithm when n is small (e.g., n < 2^15)
+// Benchmarking shows that this O(n^2) implementation is faster in the paper's data range (e.g., n < 2^15).
+// MSMs dominate in larger tested cases, so a divide-and-conquer implementation has not been included.
 fn multi_evaluate<F: PrimeField>(w: &Vec<F>) -> Vec<F> {
     let mut res = vec![F::ONE; w.len()];
     for i in 0..w.len() {

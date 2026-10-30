@@ -95,6 +95,18 @@ Measures the performance of preprocessing (used to estimate the parallel executi
 cargo bench --bench preprocess
 ```
 
+The preprocessing numbers in Table 7 are cost-model estimates obtained from the component
+microbenchmarks in `benches/preprocess.rs`. Assuming all hints are valid, HintVerify requires $N+1$
+pairings and $N$ times the combined cost of $\mathsf{msm}_1(N)$ and $\mathsf{msm}_2(N)$; computing
+$\mathsf{ak}$ and $\mathsf{vk}$ requires $N^2-1$ and $N$ $\mathbb{G}_1$ additions, respectively. The
+average overhead per hint is therefore approximated by $T = 1$ pairing + $\mathsf{msm}_1(N)$ +
+$\mathsf{msm}_2(N)$ + $N$ $\mathbb{G}_1$ additions.
+
+Preprocessing is fully parallelizable across both participating parties and hardware threads. With node
+parallelism $P_1=128$ and hardware parallelism $P_2=4$, the estimated execution time is
+$C = T \times N / P$, where $P=P_1P_2=512$. Table 7 reports $T$, $T\times N$, and $C$ in milliseconds.
+Table 7 is an estimate based on these component benchmarks, not an end-to-end preprocessing measurement.
+
 ### Table 2: End-to-End Performance (c-STS and c-STE)
 
 You can run the end-to-end examples by specifying the operation (`sign` or `encrypt`), total size $N$, committee size $n$, and threshold $t$. The program will output the time taken for each step.
@@ -104,6 +116,10 @@ You can run the end-to-end examples by specifying the operation (`sign` or `encr
 ```bash
 cargo run --example endtoend --release -- <sign/encrypt> <N> <n> <t>
 ```
+
+For demonstration efficiency, the end-to-end example uses the trapdoor shortcut implemented by `preprocess_trapdoor` instead of the regular hint-generation-and-preprocessing path. It also does not call HintVerify and therefore models the case in which all participants are honest. The regular path, which verifies hints and excludes invalid participants, is intentionally omitted from the end-to-end demo because generating hints and preprocessing all participants is too expensive for this purpose. Table 7's preprocessing estimates can be reproduced with `cargo bench --bench preprocess`; these are estimated component costs, not measurements of the trapdoor-based end-to-end preprocessing.
+
+In `multi_evaluate`, the $O(n^2)$ implementation is used in the code. Benchmarking showed that this version is faster for the committee sizes in the paper's data range. Although its asymptotic complexity is worse than a divide-and-conquer implementation, the MSM operations dominate in the tested range, so it is the preferred implementation for these measurements.
 
 *(Note: $N$ must be a power of 2. In our batch evaluation, we default to $t = n/2$.)*
 

@@ -1,6 +1,7 @@
 use std::hint::black_box;
 
-use c_ste::{dealer::Dealer, member::Member};
+use ark_ec::CurveGroup;
+use c_ste::{dealer::{Dealer, hint_verify}, member::Member};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 type E = ark_bls12_381::Bls12_381;
@@ -38,9 +39,31 @@ fn bench_hints(c: &mut Criterion) {
                 let _ = black_box(hint);
             });
         });
+
     }
 
     group.finish();
+
+    let mut verification_group = c.benchmark_group("single hint verification time");
+    verification_group.sample_size(10);
+    let k_end = match std::env::var("CSTE_BENCH_MODE").ok().as_deref() {
+        Some("fast") => 14,
+        _ => 20,
+    };
+    for k in (6..=k_end).step_by(2) {
+        let n = 1 << k;
+        let (d, _) = Dealer::<E>::init_fast(n - 1);
+        let members: Vec<Member<E>> = (0..n).map(|id| Member::<E>::new(id)).collect();
+        let hint = members[3].hint_gen_lagrange(&d);
+        let pk = members[3].key.pk.into_affine();
+        verification_group.bench_function(format!("verify hint n = {}", n), |b| {
+            b.iter(|| {
+                let valid = hint_verify(&d, pk, &hint);
+                let _ = black_box(valid);
+            });
+        });
+    }
+    verification_group.finish();
 }
 
 criterion_group!(benches, bench_hints);

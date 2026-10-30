@@ -87,7 +87,7 @@ fn main() {
         // assert!(s.iter().zip(sig_s.iter()).all(|(&id, sig)| bls_verify(members[id].key.pk, &mm, sig, &g2_hasher)));
         end_timer!(sign_timer);
 
-        // let verify_sig_timer = start_timer!(|| "Part Verification");
+        let verify_sig_timer = start_timer!(|| "Part Verification");
         let sig_s_sig: Vec<G2Affine> = sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
             (**id == 0 || (com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false)))
                 && bls_verify(members[**id].key.pk, &mm, sig, &g2_hasher)
@@ -96,7 +96,7 @@ fn main() {
             (**id != 0 && com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false))
                 && bls_verify(members[**id].key.pk, &mm, sig, &g2_hasher)
         }).map(|(_, id)| *id)).collect();
-        // end_timer!(verify_sig_timer);
+        end_timer!(verify_sig_timer);
         
         let aggregate_timer = start_timer!(|| "Aggregation");
         let aggr_sig = aggregate(&d, &ak, &s, &com_e, &sig_s_sig, t);
@@ -123,7 +123,7 @@ fn main() {
         ).collect();
         end_timer!(sign_timer);
 
-        // let verify_sig_timer = start_timer!(|| "Part Verification");
+        let verify_sig_timer = start_timer!(|| "Part Verification");
         let sig_s_sig: Vec<G2Affine> = sig_s.iter().zip(s.iter()).filter(|(sig, id)| {
             (**id == 0 || (com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false)))
                 && bls_verify(members[**id].key.pk, &m, sig, &g2_hasher)
@@ -132,7 +132,7 @@ fn main() {
             (**id != 0 && com_e.contains(id) && ak.v.get(**id).copied().unwrap_or(false))
                 && bls_verify(members[**id].key.pk, &m, sig, &g2_hasher)
         }).map(|(_, id)| *id)).collect();
-        // end_timer!(verify_sig_timer);
+        end_timer!(verify_sig_timer);
         
         let decrypt_timer = start_timer!(|| "Decryption");
         let msg_decrypt = decrypt(&d, &ak, &ct, &s, &com_e, &sig_s_sig, t);

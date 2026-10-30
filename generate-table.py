@@ -103,7 +103,7 @@ def main():
         # 1. Epoch Table
         # ---------------------------------------------------------
         f.write("## Time to compute the representation of epoch committees (Table 1)\n\n")
-        f.write(f"| N | Dyna-hinTS ({UNIT_STR}) | c-STS ({UNIT_STR}) | Overhead |\n")
+        f.write(f"| n | Dyna-hinTS ({UNIT_STR}) | c-STS ({UNIT_STR}) | Overhead |\n")
         f.write("|---|-----------------|------------|----------|\n")
         
         epoch_group = results.get("epoch-repr time", {})
@@ -144,9 +144,9 @@ def main():
         # ---------------------------------------------------------
         # 3. Hints Table
         # ---------------------------------------------------------
-        f.write("## Time to compute a hint for a single party (Table 6)\n\n")
-        f.write(f"| N | Dyna-hinTS ({UNIT_STR}) | c-STS ({UNIT_STR}) | Improvement |\n")
-        f.write("|---|-----------------|------------|-------------|\n")
+        f.write("## Time to compute and verify the hint for a single party (Table 6)\n\n")
+        f.write(f"| N | Naive approach ({UNIT_STR}) | c-STS ({UNIT_STR}) | Improvement | HintVerify ({UNIT_STR}) |\n")
+        f.write("|---|-----------------|------------|----------------|-------------|\n")
         
         hints_group = results.get("single hint generation time", {})
         hints_n_values = set()
@@ -166,13 +166,15 @@ def main():
                 dyna_str = f"{dyna:.4f}"
                 
             c_sts_str = f"{c_sts:.4f}" if c_sts is not None else "-"
+            hint_verify = results.get("single hint verification time", {}).get(f"verify hint n = {n}")
+            hint_verify_str = f"{hint_verify:.4f}" if hint_verify is not None else "-"
             
             if dyna is not None and c_sts is not None and c_sts != 0:
                 improvement_str = f"{dyna / c_sts:.4f}"
             else:
                 improvement_str = "-"
                 
-            f.write(f"| {n} | {dyna_str} | {c_sts_str} | {improvement_str} |\n")
+            f.write(f"| {n} | {dyna_str} | {c_sts_str} | {improvement_str} | {hint_verify_str} |\n")
 
         f.write("\n")
 
@@ -180,8 +182,8 @@ def main():
         # 4. Preprocess Table
         # ---------------------------------------------------------
         f.write("## Estimated preprocess time (Table 7)\n\n")
-        f.write(f"| N | 1 pairing ({UNIT_STR}) | $msm_1(N)$ ({UNIT_STR}) | $msm_2(N)$ ({UNIT_STR}) | $N+1$ G_1 Add ({UNIT_STR}) | T ({UNIT_STR}) | $T\\times N$ ({UNIT_STR}) | C |\n")
-        f.write("|---|--------------|-----------------|-----------------|---------------|--------|------------------|---|\n")
+        f.write(f"| N | 1 pairing ({UNIT_STR}) | msm_1(N) ({UNIT_STR}) | msm_2(N) ({UNIT_STR}) | N G_1 additions ({UNIT_STR}) | T ({UNIT_STR}) | T x N ({UNIT_STR}) | C = T x N / 512 ({UNIT_STR}) |\n")
+        f.write("|---|--------------|-----------------|-----------------|---------------|--------|------------------|----------------------------|\n")
         
         prep_group = results.get("preprocess estimate time", {})
         prep_n_values = set()
