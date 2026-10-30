@@ -139,8 +139,9 @@ impl<E: Pairing> Member<E> {
 }
 
 pub fn lagrange_poly<F: FftField>(n: usize, i: usize) -> DensePolynomial<F> {
-    debug_assert!(i < n);
-    // TODO: check n is a power of 2
+    assert!(n > 0 && n.is_power_of_two(), "n must be a positive power of two");
+    assert!(i < n, "lagrange polynomial index must be less than n");
+
     let mut evals = vec![];
     for j in 0..n {
         let l_of_x: u64 = if i == j { 1 } else { 0 };
@@ -148,7 +149,9 @@ pub fn lagrange_poly<F: FftField>(n: usize, i: usize) -> DensePolynomial<F> {
     }
 
     // powers of nth root of unity
-    let domain = Radix2EvaluationDomain::<F>::new(n).unwrap();
+    let domain = Radix2EvaluationDomain::<F>::new(n)
+        .expect("field does not support a radix-2 evaluation domain of the requested size");
+    assert_eq!(domain.size(), n, "evaluation domain size must equal n");
     let eval_form = Evaluations::from_vec_and_domain(evals, domain);
     // interpolated polynomial over the n points
     eval_form.interpolate()
