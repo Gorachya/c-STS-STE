@@ -75,7 +75,7 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
         |(&w, &b)| (w.pow([(t + 1) as u64]) * b).into_bigint()
     ).collect();
     let mut bt = <E::G1 as VariableBaseMSM>::msm_bigint(&l_s.0, &bt_s);
-    if sig_s.len() == t + 1 {
+    if s.len() == t + 1 {
         bt += (d.crs.0[d.crs.0.len()-1] - d.crs.0[0]) * g1 * inv_n_plus_one;
     }
 
