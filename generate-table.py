@@ -78,6 +78,17 @@ def main():
         f.write("\n")
 
         # ---------------------------------------------------------
+        # Fixed c-STS Verification Time
+        # ---------------------------------------------------------
+        f.write("## c-STS Verification Time (fixed n=4096, t=2048)\n\n")
+        f.write(f"| n | t | Time ({UNIT_STR}) |\n")
+        f.write("|---|---|------|\n")
+        verification_time = results.get("c-sts verification time", {}).get("n=4096,t=2048")
+        verification_time_str = f"{verification_time:.4f}" if verification_time is not None else "-"
+        f.write(f"| 4096 | 2048 | {verification_time_str} |\n")
+        f.write("\n")
+
+        # ---------------------------------------------------------
         # 2. Aggregation Table
         # ---------------------------------------------------------
         f.write("## Aggregation Time (Table 2)\n\n")
@@ -93,6 +104,32 @@ def main():
             time_ms = aggregation_group.get(f"n={n},t={n // 2}")
             time_str = f"{time_ms:.4f}" if time_ms is not None else "-"
             f.write(f"| {n} | {time_str} |\n")
+        f.write("\n")
+
+        # ---------------------------------------------------------
+        # Fixed Cryptographic Primitive and c-STE Times
+        # ---------------------------------------------------------
+        f.write("## Fixed BLS and c-STE Times\n\n")
+        f.write(f"| Benchmark | Time ({UNIT_STR}) |\n")
+        f.write("|---|------|\n")
+
+        bls_group = results.get("bls time", {})
+        bls_sign = bls_group.get("sign")
+        bls_verify = bls_group.get("verify")
+        decaggr = results.get("c-ste decaggr increment", {}).get(
+            "9-way multi-pairing + subtraction"
+        )
+        encryption = results.get("c-ste encryption", {}).get("n=4096,t=2048")
+
+        fixed_results = [
+            ("BLS sign", bls_sign),
+            ("BLS verify", bls_verify),
+            ("c-STE DecAggr increment (9-way multi-pairing)", decaggr),
+            ("c-STE Encryption (n=4096, t=2048)", encryption),
+        ]
+        for label, time_ms in fixed_results:
+            time_str = f"{time_ms:.4f}" if time_ms is not None else "-"
+            f.write(f"| {label} | {time_str} |\n")
         f.write("\n")
 
         # ---------------------------------------------------------

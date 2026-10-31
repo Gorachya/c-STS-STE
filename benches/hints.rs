@@ -1,10 +1,139 @@
 use std::hint::black_box;
 
-use ark_ec::CurveGroup;
-use c_ste::{dealer::{Dealer, hint_verify}, member::Member};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, VariableBaseMSM, pairing::Pairing};
+use ark_ff::{Field, Zero};
+use ark_poly::{DenseUVPolynomial, Polynomial, univariate::DensePolynomial};
+use ark_std::UniformRand;
+use c_ste::{
+    dealer::{Dealer, Hints},
+    member::Member,
+};
 use criterion::{Criterion, criterion_group, criterion_main};
+use rand::thread_rng;
 
 type E = ark_bls12_381::Bls12_381;
+
+struct PreparedHintVerification<E: Pairing> {
+    li_commitment: E::G2Affine,
+    li_minus_constant_commitment: E::G2Affine,
+    li_squared_minus_li_div_zx_commitment: E::G2Affine,
+    li_div_x_commitment: E::G2Affine,
+    cross_commitments: Vec<E::G2Affine>,
+}
+
+fn commit_g2<E: Pairing>(
+    dealer: &Dealer<E>,
+    polynomial: &DensePolynomial<E::ScalarField>,
+) -> E::G2 {
+    <E::G2 as VariableBaseMSM>::msm_unchecked(&dealer.crs.1, &polynomial.coeffs)
+}
+
+fn prepare_hint_verification<E: Pairing>(
+    dealer: &Dealer<E>,
+    trapdoor: &c_ste::dealer::Trapdoor<E>,
+    hint: &Hints<E>,
+) -> PreparedHintVerification<E> {
+    let id = hint.id;
+    let n = dealer.w_domain.len();
+    let inv_n = dealer.total_plus_1.inverse().unwrap();
+    let wi_inv = dealer.w_domain[(n - id) % n];
+    let li_coeffs: Vec<E::ScalarField> = std::iter::successors(Some(inv_n), |power| Some(*power * wi_inv))
+        .take(n)
+        .collect();
+    let li = DensePolynomial::from_coefficients_vec(li_coeffs);
+    debug_assert_eq!(
+        li.evaluate(&trapdoor.powers_of_tau[1]),
+        trapdoor.lagrange_basis_tau[id],
+    );
+
+    let mut li_minus_constant_coeffs = li.coeffs.clone();
+    li_minus_constant_coeffs[0] -= inv_n;
+    let li_minus_constant = DensePolynomial::from_coefficients_vec(li_minus_constant_coeffs);
+    let li_div_x = DensePolynomial::from_coefficients_vec(
+        li_minus_constant.coeffs.iter().skip(1).copied().collect(),
+    );
+
+    let mut zx_coeffs = vec![E::ScalarField::zero(); n + 1];
+    zx_coeffs[0] = -E::ScalarField::ONE;
+    zx_coeffs[n] = E::ScalarField::ONE;
+    let zx = DensePolynomial::from_coefficients_vec(zx_coeffs);
+    let li_squared_minus_li_div_zx = (&li * &li - &li) / &zx;
+
+    let mut cross_commitments = Vec::with_capacity(n);
+    for j in 0..n {
+        if j == id {
+            cross_commitments.push(E::G2Affine::zero());
+            continue;
+        }
+        let wj_inv = dealer.w_domain[(n - j) % n];
+        let lj_coeffs: Vec<E::ScalarField> =
+            std::iter::successors(Some(inv_n), |power| Some(*power * wj_inv))
+                .take(n)
+                .collect();
+        let lj = DensePolynomial::from_coefficients_vec(lj_coeffs);
+        let lilj_div_zx = (&li * &lj) / &zx;
+        cross_commitments.push(commit_g2(dealer, &lilj_div_zx).into_affine());
+    }
+
+    PreparedHintVerification {
+        li_commitment: dealer.lagrange_basis_commit.1[id],
+        li_minus_constant_commitment: commit_g2(dealer, &li_minus_constant).into_affine(),
+        li_squared_minus_li_div_zx_commitment: commit_g2(dealer, &li_squared_minus_li_div_zx).into_affine(),
+        li_div_x_commitment: commit_g2(dealer, &li_div_x).into_affine(),
+        cross_commitments,
+    }
+}
+
+fn hint_verify_preprocessed<E: Pairing>(
+    dealer: &Dealer<E>,
+    pk: E::G1Affine,
+    hint: &Hints<E>,
+    prepared: &PreparedHintVerification<E>,
+) -> bool {
+    let id = hint.id;
+    let n = dealer.w_domain.len();
+    let li_commit_g1 = dealer.lagrange_basis_commit.0[id].into_group();
+
+    let eq_ok = c_ste::utils::eq_dl_verify(
+        E::G1::generator(),
+        pk.into_group(),
+        li_commit_g1,
+        hint.h1.into_group(),
+        hint.proof,
+    );
+    if !eq_ok {
+        return false;
+    }
+
+    let random = E::ScalarField::rand(&mut thread_rng());
+    let random_powers: Vec<E::ScalarField> =
+        std::iter::successors(Some(E::ScalarField::ONE), |power| Some(*power * random))
+            .take(n + 3)
+            .collect();
+
+    let mut hint_bases = vec![hint.h1, hint.h2, hint.h3, hint.h4];
+    let mut commitment_bases = vec![
+        prepared.li_commitment,
+        prepared.li_minus_constant_commitment,
+        prepared.li_squared_minus_li_div_zx_commitment,
+        prepared.li_div_x_commitment,
+    ];
+    for j in 0..n {
+        if j == id {
+            continue;
+        }
+        hint_bases.push(hint.h5[j].into_affine());
+        commitment_bases.push(prepared.cross_commitments[j]);
+    }
+
+    let batched_hint =
+        <E::G1 as VariableBaseMSM>::msm_unchecked(&hint_bases, &random_powers[..hint_bases.len()]);
+    let batched_commitment = <E::G2 as VariableBaseMSM>::msm_unchecked(
+        &commitment_bases,
+        &random_powers[..commitment_bases.len()],
+    );
+    E::pairing(batched_hint, E::G2::generator()) == E::pairing(pk, batched_commitment)
+}
 
 fn bench_hints(c: &mut Criterion) {
     let mut group = c.benchmark_group("single hint generation time");
@@ -47,18 +176,19 @@ fn bench_hints(c: &mut Criterion) {
     let mut verification_group = c.benchmark_group("single hint verification time");
     verification_group.sample_size(10);
     let k_end = match std::env::var("CSTE_BENCH_MODE").ok().as_deref() {
-        Some("fast") => 14,
+        Some("fast") => 12,
         _ => 20,
     };
     for k in (6..=k_end).step_by(2) {
         let n = 1 << k;
-        let (d, _) = Dealer::<E>::init_fast(n - 1);
+        let (d, trapdoor) = Dealer::<E>::init_fast(n - 1);
         let members: Vec<Member<E>> = (0..n).map(|id| Member::<E>::new(id)).collect();
         let hint = members[3].hint_gen_lagrange(&d);
         let pk = members[3].key.pk.into_affine();
+        let prepared = prepare_hint_verification(&d, &trapdoor, &hint);
         verification_group.bench_function(format!("verify hint n = {}", n), |b| {
             b.iter(|| {
-                let valid = hint_verify(&d, pk, &hint);
+                let valid = hint_verify_preprocessed(&d, pk, &hint, &prepared);
                 let _ = black_box(valid);
             });
         });

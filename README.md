@@ -78,6 +78,14 @@ Measures the performance of the epoch representation computation.
 cargo bench --bench epoch
 ```
 
+### Table 2: Signature Aggregation
+
+The aggregation runtime is measured by the dedicated Criterion benchmark. Its runtime depends on the committee size $n$, rather than the total number of parties $N$.
+
+```bash
+cargo bench --bench aggregation
+```
+
 ### Table 6: Hints Computation
 
 Measures the performance of hints computation.
@@ -98,14 +106,6 @@ cargo bench --bench preprocess
 The preprocessing numbers in Table 7 are cost-model estimates obtained from the HintVerify benchmark in `benches/hints.rs` and the $N+1$ $\mathbb{G}_1$ addition benchmark in `benches/preprocess.rs`. The average overhead per hint is approximated by $T = \mathsf{HintVerify}(N) + (N+1)\mathbb{G}_1\text{ additions}$.
 
 Preprocessing is fully parallelizable across both participating parties and hardware threads. With node parallelism $P_1=128$ and hardware parallelism $P_2=4$, the estimated execution time is $C = T \times N / P$, where $P=P_1P_2=512$. Table 7 reports $T$, $T\times N$, and $C$ in milliseconds. Table 7 is an estimate based on these component benchmarks, not an end-to-end preprocessing measurement.
-
-### Table 2: Signature Aggregation
-
-The aggregation runtime is measured by the dedicated Criterion benchmark. Its runtime depends on the committee size $n$, rather than the total number of parties $N$.
-
-```bash
-cargo bench --bench aggregation
-```
 
 ### Additional c-STS and c-STE End-to-End Examples
 
