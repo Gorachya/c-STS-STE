@@ -1,8 +1,8 @@
 use std::hint::black_box;
 
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, VariableBaseMSM, pairing::Pairing};
-use ark_ff::{Field, Zero};
-use ark_poly::{DenseUVPolynomial, Polynomial, univariate::DensePolynomial};
+use ark_ff::Field;
+use ark_poly::{DenseUVPolynomial, univariate::DensePolynomial};
 use ark_std::UniformRand;
 use c_ste::{
     dealer::{Dealer, Hints},
@@ -30,34 +30,20 @@ fn commit_g2<E: Pairing>(
 
 fn prepare_hint_verification<E: Pairing>(
     dealer: &Dealer<E>,
-    trapdoor: &c_ste::dealer::Trapdoor<E>,
+    _trapdoor: &c_ste::dealer::Trapdoor<E>,
     hint: &Hints<E>,
 ) -> PreparedHintVerification<E> {
     let id = hint.id;
     let n = dealer.w_domain.len();
     let inv_n = dealer.total_plus_1.inverse().unwrap();
     let wi_inv = dealer.w_domain[(n - id) % n];
-    let li_coeffs: Vec<E::ScalarField> = std::iter::successors(Some(inv_n), |power| Some(*power * wi_inv))
-        .take(n)
-        .collect();
-    let li = DensePolynomial::from_coefficients_vec(li_coeffs);
-    debug_assert_eq!(
-        li.evaluate(&trapdoor.powers_of_tau[1]),
-        trapdoor.lagrange_basis_tau[id],
-    );
-
-    let mut li_minus_constant_coeffs = li.coeffs.clone();
-    li_minus_constant_coeffs[0] -= inv_n;
-    let li_minus_constant = DensePolynomial::from_coefficients_vec(li_minus_constant_coeffs);
-    let li_div_x = DensePolynomial::from_coefficients_vec(
-        li_minus_constant.coeffs.iter().skip(1).copied().collect(),
-    );
-
-    let mut zx_coeffs = vec![E::ScalarField::zero(); n + 1];
-    zx_coeffs[0] = -E::ScalarField::ONE;
-    zx_coeffs[n] = E::ScalarField::ONE;
-    let zx = DensePolynomial::from_coefficients_vec(zx_coeffs);
-    let li_squared_minus_li_div_zx = (&li * &li - &li) / &zx;
+    let li_coeffs: Vec<E::ScalarField> =
+        std::iter::successors(Some(inv_n), |power| Some(*power * wi_inv))
+            .take(n)
+            .collect();
+    let li_commitment = dealer.lagrange_basis_commit.1[id].into_group();
+    let li_minus_constant_commitment =
+        li_commitment - E::G2::generator() * inv_n;
 
     let mut cross_commitments = Vec::with_capacity(n);
     for j in 0..n {
@@ -65,21 +51,29 @@ fn prepare_hint_verification<E: Pairing>(
             cross_commitments.push(E::G2Affine::zero());
             continue;
         }
-        let wj_inv = dealer.w_domain[(n - j) % n];
-        let lj_coeffs: Vec<E::ScalarField> =
-            std::iter::successors(Some(inv_n), |power| Some(*power * wj_inv))
-                .take(n)
-                .collect();
-        let lj = DensePolynomial::from_coefficients_vec(lj_coeffs);
-        let lilj_div_zx = (&li * &lj) / &zx;
-        cross_commitments.push(commit_g2(dealer, &lilj_div_zx).into_affine());
+        let lj_commitment = dealer.lagrange_basis_commit.1[j].into_group();
+        let wi = dealer.w_domain[id];
+        let wj = dealer.w_domain[j];
+        let lilj_commitment =
+            (-li_commitment + (lj_commitment - li_commitment) * (wi / (wj - wi))) * inv_n;
+        cross_commitments.push(lilj_commitment.into_affine());
     }
 
+    let li_div_x_coeffs = li_coeffs.iter().skip(1).copied().collect();
+    let li_div_x = DensePolynomial::from_coefficients_vec(li_div_x_coeffs);
+    let li_div_x_commitment = commit_g2(dealer, &li_div_x).into_affine();
+    let cross_commitment_sum = cross_commitments
+        .iter()
+        .filter(|commitment| !commitment.is_zero())
+        .map(|commitment| commitment.into_group())
+        .sum::<E::G2>();
+    let li_squared_minus_li_commitment = (-cross_commitment_sum).into_affine();
+
     PreparedHintVerification {
-        li_commitment: dealer.lagrange_basis_commit.1[id],
-        li_minus_constant_commitment: commit_g2(dealer, &li_minus_constant).into_affine(),
-        li_squared_minus_li_div_zx_commitment: commit_g2(dealer, &li_squared_minus_li_div_zx).into_affine(),
-        li_div_x_commitment: commit_g2(dealer, &li_div_x).into_affine(),
+        li_commitment: li_commitment.into_affine(),
+        li_minus_constant_commitment: li_minus_constant_commitment.into_affine(),
+        li_squared_minus_li_div_zx_commitment: li_squared_minus_li_commitment,
+        li_div_x_commitment: li_div_x_commitment,
         cross_commitments,
     }
 }

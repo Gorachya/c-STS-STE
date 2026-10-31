@@ -67,7 +67,6 @@ fn bench_decaggr_increment(c: &mut Criterion) {
     let ct3 = E::pairing(G1::rand(&mut rng), G2::rand(&mut rng));
 
     let mut group = c.benchmark_group("c-ste decaggr increment");
-    group.sample_size(10);
     group.bench_function("9-way multi-pairing + subtraction", |b| {
         b.iter(|| {
             let _ = black_box(
@@ -102,7 +101,6 @@ fn bench_encryption(c: &mut Criterion) {
 
     black_box(&aggregation_key);
     let mut group = c.benchmark_group("c-ste encryption");
-    group.sample_size(10);
     group.bench_function("n=4096,t=2048", |b| {
         b.iter(|| {
             black_box(encrypt(

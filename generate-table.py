@@ -178,20 +178,35 @@ def main():
         
         prep_group = results.get("preprocess estimate time", {})
         hint_verify_group = results.get("single hint verification time", {})
-        prep_n_values = sorted({
+        prep_n_values = {
+            n for test_id in prep_group
+            if (n := extract_n(test_id)) is not None
+        }
+        hint_verify_n_values = {
             n for test_id in hint_verify_group
             if (n := extract_n(test_id)) is not None
-        })
-                
-        for n in sorted(prep_n_values):
-            add = prep_group.get(f"g1 add n = {n}", 0.0)
-            hint_verify = hint_verify_group.get(f"verify hint n = {n}", 0.0)
-            
-            t = hint_verify + add
-            t_times_n = t * n
-            c = t_times_n / 512
-            
-            f.write(f"| {n} | {hint_verify:.4f} | {add:.4f} | {t:.4f} | {t_times_n:.4f} | {c:.4f} |\n")
+        }
+
+        for n in sorted(prep_n_values | hint_verify_n_values):
+            hint_verify = hint_verify_group.get(f"verify hint n = {n}")
+            add = prep_group.get(f"g1 add n+1 = {n}")
+
+            hint_verify_str = f"{hint_verify:.4f}" if hint_verify is not None else "-"
+            add_str = f"{add:.4f}" if add is not None else "-"
+
+            if hint_verify is None or add is None:
+                t_str = "-"
+                t_times_n_str = "-"
+                c_str = "-"
+            else:
+                t = hint_verify + add
+                t_times_n = t * n
+                c = t_times_n / 512
+                t_str = f"{t:.4f}"
+                t_times_n_str = f"{t_times_n:.4f}"
+                c_str = f"{c:.4f}"
+
+            f.write(f"| {n} | {hint_verify_str} | {add_str} | {t_str} | {t_times_n_str} | {c_str} |\n")
 
     print(f"Data extraction completed, results written to {output_file}")
 

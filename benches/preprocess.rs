@@ -22,9 +22,9 @@ fn bench_preprocess(c: &mut Criterion) {
     };
     for k in (6..=k_end).step_by(2) {
         let n = 1 << k;
-        let g1: Vec<G1Affine> = (0..n).map(|_| G1::rand(&mut rng).into_affine()).collect();
+        let g1: Vec<G1Affine> = (0..n + 1).map(|_| G1::rand(&mut rng).into_affine()).collect();
 
-        group.bench_function(format!("g1 add n = {}", n), |b| {
+        group.bench_function(format!("g1 add n+1 = {}", n), |b| {
             b.iter(|| {
                 let repr: G1 = g1.iter().sum();
                 let _ = black_box(repr);
