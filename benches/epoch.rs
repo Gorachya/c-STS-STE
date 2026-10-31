@@ -18,7 +18,7 @@ fn bench_epoch_repr(c: &mut Criterion) {
     let mut group = c.benchmark_group("epoch-repr time");
 
     let mut rng = thread_rng();
-    for k in 7..12 {
+    for k in 7..=12 {
         let n = 1 << k;
         let g1: Vec<G1Affine> = (0..n).map(|_| G1::rand(&mut rng).into_affine()).collect();
         let g2: Vec<G2> = (0..n).map(|_| G2::rand(&mut rng)).collect();

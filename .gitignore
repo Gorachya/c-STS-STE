@@ -1,5 +1,6 @@
 /target
 /paper.md
 /benchmark_results.md
+/evaluation.md
 /__pycache__/
 *.py[cod]

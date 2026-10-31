@@ -12,7 +12,7 @@ fn bench_hints(c: &mut Criterion) {
 
     let (k_end, naive_k_max) = match std::env::var("CSTE_BENCH_MODE").ok().as_deref() {
         Some("fast") => (14, 8),
-        _ => (20, 10),
+        _ => (20, 12),
     };
     for k in (6..=k_end).step_by(2) {
         let n = 1 << k;

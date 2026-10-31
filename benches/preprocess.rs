@@ -30,10 +30,10 @@ fn bench_preprocess(c: &mut Criterion) {
     });
 
     let k_end = match std::env::var("CSTE_BENCH_MODE").ok().as_deref() {
-        Some("fast") => 17,
-        _ => 21,
+        Some("fast") => 16,
+        _ => 20,
     };
-    for k in (10..k_end).step_by(2) {
+    for k in (10..=k_end).step_by(2) {
         let n = 1 << k;
         let g1: Vec<G1Affine> = (0..n).map(|_| G1::rand(&mut rng).into_affine()).collect();
         let g2: Vec<G2Affine> = (0..n).map(|_| G2::rand(&mut rng).into_affine()).collect();
