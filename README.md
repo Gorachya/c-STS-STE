@@ -5,8 +5,8 @@ This is the artifact of the paper "Practical Silent Threshold Signatures and Sil
 ## Repository Structure
 
 *   `src/`: Contains the core implementation of the c-STS and c-STE cryptographic schemes.
-*   `benches/`: Contains the benchmark scripts using the `criterion` framework (corresponding to Tables 1, 6, 7).
-*   `examples/`: Contains the end-to-end integration examples (corresponding to Table 2).
+*   `benches/`: Contains the benchmark scripts using the `criterion` framework.
+*   `examples/`: Contains the end-to-end integration examples for c-STS and c-STE.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ This artifact requires **Rust** to build and run.
 Evaluating our protocols on large committee sizes (e.g., $N = 2^{20}$) is highly computationally intensive. 
 
 *   **Long Preparation Time:** In the `preprocess` benchmark, generating $N$ Elliptic Curve points for $N=2^{20}$ can take **>20 minutes**.
-*   **Long Initialization:** Similarly, the `endtoend` benchmark for signature aggregation requires substantial initialization time when $N \geq 2^{16}$.
+*   **Long Initialization:** The end-to-end examples require substantial initialization time when $N \geq 2^{16}$.
 *   Since the benchmarking framework `criterion` requires a minimum of 10 samples, we have set `group.sample_size(10)` for some long-running tests.
 
 To accommodate different evaluation time constraints and ensure a smooth review process, **our automated evaluation scripts require a mandatory parameter (`fast` or `full`)** to control the testing scale.
@@ -95,19 +95,19 @@ Measures the performance of preprocessing (used to estimate the parallel executi
 cargo bench --bench preprocess
 ```
 
-The preprocessing numbers in Table 7 are cost-model estimates obtained from the component
-microbenchmarks in `benches/preprocess.rs`. Assuming all hints are valid, HintVerify requires $N+1$
-pairings and $N$ times the combined cost of $\mathsf{msm}_1(N)$ and $\mathsf{msm}_2(N)$; computing
-$\mathsf{ak}$ and $\mathsf{vk}$ requires $N^2-1$ and $N$ $\mathbb{G}_1$ additions, respectively. The
-average overhead per hint is therefore approximated by $T = 1$ pairing + $\mathsf{msm}_1(N)$ +
-$\mathsf{msm}_2(N)$ + $N$ $\mathbb{G}_1$ additions.
+The preprocessing numbers in Table 7 are cost-model estimates obtained from the HintVerify benchmark in `benches/hints.rs` and the $N+1$ $\mathbb{G}_1$ addition benchmark in `benches/preprocess.rs`. The average overhead per hint is approximated by $T = \mathsf{HintVerify}(N) + (N+1)\mathbb{G}_1\text{ additions}$.
 
-Preprocessing is fully parallelizable across both participating parties and hardware threads. With node
-parallelism $P_1=128$ and hardware parallelism $P_2=4$, the estimated execution time is
-$C = T \times N / P$, where $P=P_1P_2=512$. Table 7 reports $T$, $T\times N$, and $C$ in milliseconds.
-Table 7 is an estimate based on these component benchmarks, not an end-to-end preprocessing measurement.
+Preprocessing is fully parallelizable across both participating parties and hardware threads. With node parallelism $P_1=128$ and hardware parallelism $P_2=4$, the estimated execution time is $C = T \times N / P$, where $P=P_1P_2=512$. Table 7 reports $T$, $T\times N$, and $C$ in milliseconds. Table 7 is an estimate based on these component benchmarks, not an end-to-end preprocessing measurement.
 
-### Table 2: End-to-End Performance (c-STS and c-STE)
+### Table 2: Signature Aggregation
+
+The aggregation runtime is measured by the dedicated Criterion benchmark. Its runtime depends on the committee size $n$, rather than the total number of parties $N$.
+
+```bash
+cargo bench --bench aggregation
+```
+
+### Additional c-STS and c-STE End-to-End Examples
 
 You can run the end-to-end examples by specifying the operation (`sign` or `encrypt`), total size $N$, committee size $n$, and threshold $t$. The program will output the time taken for each step.
 
@@ -131,12 +131,4 @@ In `multi_evaluate`, the $O(n^2)$ implementation is used in the code. Benchmarki
   cargo run --example endtoend --release -- encrypt 8192 4096 2048
   ```
 
-* To reproduce the **Aggregation time (Table 2)** for **c-STS** under $N=4096$, $n=2048$, and $t=1024$:
-
-  ```bash
-  cargo run --example endtoend --release -- sign 4096 2048 1024
-  ```
-
-  *Look for the "Aggregation" time in the console output to compare with Table 2.*
-
-> As mathematically proven and demonstrated in the paper, the signature aggregation time is independent of $N$. Therefore, **we do not recommend running `endtoend` with excessively large $N$** due to the potentially long initialization time.
+> As mathematically proven and demonstrated in the paper, the signature aggregation time is independent of $N$.
