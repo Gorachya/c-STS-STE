@@ -1,6 +1,6 @@
 use std::iter;
 
-use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, ScalarMul, VariableBaseMSM, pairing::Pairing};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, ScalarMul, VariableBaseMSM, pairing::{Pairing, PairingOutput}};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain, DenseUVPolynomial, univariate::DensePolynomial};
 use ark_ff::{Field, batch_inversion};
 use ark_std::{UniformRand, One, Zero};
@@ -16,6 +16,10 @@ pub struct Dealer<E: Pairing> {
     pub lagrange_basis_commit: (Vec<E::G1Affine>, Vec<E::G2Affine>),
     pub w_domain: Vec<E::ScalarField>,
     pub z: E::G2,
+    pub lagrange_basis_zero_pairing: PairingOutput<E>,
+    pub g2_generator_prepared: E::G2Prepared,
+    pub crs_g2_tau_prepared: E::G2Prepared,
+    pub crs_g2_tau_minus_one_prepared: E::G2Prepared,
 }
 
 pub struct Hints<E: Pairing> {
@@ -39,6 +43,7 @@ pub struct AggrKey<E: Pairing> {
 pub struct EncKey<E: Pairing> {
     pub c: E::G1,
     pub z: E::G2,
+    pub z_prepared: E::G2Prepared,
 }
 
 #[derive(Clone)]
@@ -125,7 +130,10 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
         &commitment_bases,
         &random_powers[..commitment_bases.len()],
     );
-    E::pairing(batched_hint, E::G2::generator()) == E::pairing(pk, batched_commitment)
+    E::final_exponentiation(E::multi_miller_loop(
+        [-batched_hint, pk.into_group()],
+        [dealer.g2_generator_prepared.clone(), batched_commitment.into_affine().into()],
+    )) == Some(PairingOutput::zero())
 }
 
 fn commit_g2<E: Pairing>(dealer: &Dealer<E>, polynomial: &DensePolynomial<E::ScalarField>) -> E::G2 {
@@ -168,13 +176,25 @@ impl<E: Pairing> Dealer<E> {
             .map(|(&w, &inverse)| w * inverse * const0)
             .collect();
 
+        let lagrange_basis_commit_g1 = g.batch_mul(&lagrange_basis_tau);
+        let lagrange_basis_commit_g2 = h.batch_mul(&lagrange_basis_tau);
+        let lagrange_basis_zero_pairing =
+            E::pairing(lagrange_basis_commit_g1[0], E::G2::generator());
+        let g2_generator_prepared: E::G2Prepared = E::G2Affine::from(E::G2::generator()).into();
+        let crs_g2_tau_prepared = h * tau;
+        let crs_g2_tau_minus_one_prepared = crs_g2_tau_prepared.clone() - h;
+
         (
             Self {
                 total_plus_1,
                 crs: (g.batch_mul(&powers_of_tau), h.batch_mul(&powers_of_tau)),
-                lagrange_basis_commit: (g.batch_mul(&lagrange_basis_tau), h.batch_mul(&lagrange_basis_tau)),
+                lagrange_basis_commit: (lagrange_basis_commit_g1, lagrange_basis_commit_g2),
                 w_domain: w_domain_elements,
                 z: E::G2::generator() * tau_power_total_plus_1_minus_1,
+                lagrange_basis_zero_pairing,
+                g2_generator_prepared,
+                crs_g2_tau_prepared: crs_g2_tau_prepared.into_affine().into(),
+                crs_g2_tau_minus_one_prepared: crs_g2_tau_minus_one_prepared.into_affine().into(),
             },
             Trapdoor {
                 total_plus_1,
@@ -220,6 +240,7 @@ impl<E: Pairing> Dealer<E> {
             EncKey {
                 c: hints.iter().zip(v.iter()).filter(|(_, valid)| **valid).map(|(hint, _)| hint.h1).sum(),
                 z: self.z,
+                z_prepared: self.z.into_affine().into(),
             }
         )
     }
@@ -251,6 +272,7 @@ impl<E: Pairing> Dealer<E> {
             EncKey {
                 c,
                 z: self.z,
+                z_prepared: self.z.into_affine().into(),
             }
         )
     }
