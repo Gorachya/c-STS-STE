@@ -63,12 +63,15 @@ impl<E: Pairing> Member<E> {
             }
         ).collect();
 
+        let mut hint_affine = vec![h1, h2, h3, h4];
+        let hint_affine = E::G1::normalize_batch(&mut hint_affine);
+
         Hints {
             id: self.id,
-            h1: h1.into_affine(),
-            h2: h2.into_affine(),
-            h3: h3.into_affine(),
-            h4: h4.into_affine(),
+            h1: hint_affine[0],
+            h2: hint_affine[1],
+            h3: hint_affine[2],
+            h4: hint_affine[3],
             h5,
             proof: utils::eq_dl_prove(
                 E::G1::generator(),
@@ -96,7 +99,7 @@ impl<E: Pairing> Member<E> {
         let h2 = h1 - self.key.mul_sk(li_0);
 
         // h5 = [sk * L_i(tau)*L_j(tau)/Z(tau)]_1 for all j
-        let cons = -li_tau * inv_total_plus_one;
+        let cons = -h1 * inv_total_plus_one;
         let mut differences: Vec<E::ScalarField> = (0..n)
             .filter(|&j| j != self.id)
             .map(|j| d.w_domain[j] - wi)
@@ -106,9 +109,9 @@ impl<E: Pairing> Member<E> {
         let h5: Vec<E::G1> = (0..n).map(
             |j| {
                 if j != self.id {
-                    let coefficient = wi * differences[inverse_index] * inv_total_plus_one;
+                    let coefficient = self.key.sk * wi * differences[inverse_index] * inv_total_plus_one;
                     inverse_index += 1;
-                    self.key.mul_sk(cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * coefficient)
+                    cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * coefficient
                 } else {
                     E::G1::zero()
                 }
@@ -127,12 +130,15 @@ impl<E: Pairing> Member<E> {
             }
         );
 
+        let mut hint_affine = vec![h1, h2, h3, h4];
+        let hint_affine = E::G1::normalize_batch(&mut hint_affine);
+
         Hints {
             id: self.id,
-            h1: h1.into_affine(),
-            h2: h2.into_affine(),
-            h3: h3.into_affine(),
-            h4: h4.into_affine(),
+            h1: hint_affine[0],
+            h2: hint_affine[1],
+            h3: hint_affine[2],
+            h4: hint_affine[3],
             h5,
             proof: utils::eq_dl_prove(
                 E::G1::generator(),

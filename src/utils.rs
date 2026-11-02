@@ -27,12 +27,16 @@ where
     G2::Affine: CanonicalSerialize,
 {
     let mut transcript = b"CSTE_EQ_DL_V1".to_vec();
-    append_serialized(&mut transcript, &a.clone().into_affine());
-    append_serialized(&mut transcript, &x.clone().into_affine());
-    append_serialized(&mut transcript, &b.clone().into_affine());
-    append_serialized(&mut transcript, &y.clone().into_affine());
-    append_serialized(&mut transcript, &alpha.clone().into_affine());
-    append_serialized(&mut transcript, &beta.clone().into_affine());
+    let mut g1_points = [a.clone(), x.clone(), alpha.clone()];
+    let mut g2_points = [b.clone(), y.clone(), beta.clone()];
+    let g1_affine = G1::normalize_batch(&mut g1_points);
+    let g2_affine = G2::normalize_batch(&mut g2_points);
+    append_serialized(&mut transcript, &g1_affine[0]);
+    append_serialized(&mut transcript, &g1_affine[1]);
+    append_serialized(&mut transcript, &g2_affine[0]);
+    append_serialized(&mut transcript, &g2_affine[1]);
+    append_serialized(&mut transcript, &g1_affine[2]);
+    append_serialized(&mut transcript, &g2_affine[2]);
     F::from_le_bytes_mod_order(&Sha256::digest(transcript))
 }
 

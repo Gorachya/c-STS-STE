@@ -102,6 +102,7 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
     commitment_bases.push(commit_g2(dealer, &li_squared_minus_li_div_zx).into_affine());
     commitment_bases.push(commit_g2(dealer, &li_div_x).into_affine());
 
+    let mut h5_groups = Vec::new();
     for j in 0..n {
         if j == id {
             continue;
@@ -113,9 +114,10 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
         let lj = DensePolynomial::from_coefficients_vec(lj_coeffs);
         let lilj_div_zx = (&li * &lj) / &zx;
         let commitment = commit_g2(dealer, &lilj_div_zx).into_affine();
-        hint_bases.push(hint.h5[j].into_affine());
+        h5_groups.push(hint.h5[j]);
         commitment_bases.push(commitment);
     }
+    hint_bases.extend(E::G1::normalize_batch(&mut h5_groups));
 
     let batched_hint =
         <E::G1 as VariableBaseMSM>::msm_unchecked(&hint_bases, &random_powers[..hint_bases.len()]);
@@ -198,18 +200,21 @@ impl<E: Pairing> Dealer<E> {
             }
         }
 
+        let mut ak35_groups: Vec<E::G1> = (0..n).map(|i| {
+            if !v[i] {
+                E::G1::zero()
+            } else {
+                hints[i].h3.into_group() + ak5[i]
+            }
+        }).collect();
+        let ak35 = E::G1::normalize_batch(&mut ak35_groups);
+
         (
             AggrKey {
                 v: v.clone(),
                 ak1: pks.clone(),
                 ak2: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h2 } else { E::G1Affine::zero() }).collect(),
-                ak35: (0..n).map(|i| {
-                    if !v[i] {
-                        E::G1Affine::zero()
-                    } else {
-                        (hints[i].h3.into_group() + ak5[i]).into_affine()
-                    }
-                }).collect(),
+                ak35,
                 ak4: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h4 } else { E::G1Affine::zero() }).collect(),
             },
             EncKey {
