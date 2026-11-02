@@ -2,7 +2,7 @@ use std::iter;
 
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, ScalarMul, VariableBaseMSM, pairing::Pairing};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain, DenseUVPolynomial, univariate::DensePolynomial};
-use ark_ff::Field;
+use ark_ff::{Field, batch_inversion};
 use ark_std::{UniformRand, One, Zero};
 
 use rand::thread_rng;
@@ -32,9 +32,8 @@ pub struct AggrKey<E: Pairing> {
     pub v: Vec<bool>,
     pub ak1: Vec<E::G1Affine>,
     pub ak2: Vec<E::G1Affine>,
-    pub ak3: Vec<E::G1Affine>,
+    pub ak35: Vec<E::G1Affine>,
     pub ak4: Vec<E::G1Affine>,
-    pub ak5: Vec<E::G1Affine>,
 }
 
 pub struct EncKey<E: Pairing> {
@@ -155,14 +154,24 @@ impl<E: Pairing> Dealer<E> {
         // L_i(X) = w^i/X-w^i * (X^(N+1)-1)/(N+1)
         let const0 = tau_power_total_plus_1_minus_1 / total_plus_1;
         let w_domain = Radix2EvaluationDomain::<E::ScalarField>::new(total + 1).unwrap();
-        let lagrange_basis_tau: Vec<E::ScalarField> = w_domain.elements().map(|w| w/(tau-w)*const0).collect();
+        let w_domain_elements: Vec<E::ScalarField> = w_domain.elements().collect();
+        let mut lagrange_denominators: Vec<E::ScalarField> = w_domain_elements
+            .iter()
+            .map(|&w| tau - w)
+            .collect();
+        batch_inversion(&mut lagrange_denominators);
+        let lagrange_basis_tau: Vec<E::ScalarField> = w_domain_elements
+            .iter()
+            .zip(lagrange_denominators.iter())
+            .map(|(&w, &inverse)| w * inverse * const0)
+            .collect();
 
         (
             Self {
                 total_plus_1,
                 crs: (g.batch_mul(&powers_of_tau), h.batch_mul(&powers_of_tau)),
                 lagrange_basis_commit: (g.batch_mul(&lagrange_basis_tau), h.batch_mul(&lagrange_basis_tau)),
-                w_domain: w_domain.elements().collect(),
+                w_domain: w_domain_elements,
                 z: E::G2::generator() * tau_power_total_plus_1_minus_1,
             },
             Trapdoor {
@@ -194,9 +203,14 @@ impl<E: Pairing> Dealer<E> {
                 v: v.clone(),
                 ak1: pks.clone(),
                 ak2: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h2 } else { E::G1Affine::zero() }).collect(),
-                ak3: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h3 } else { E::G1Affine::zero() }).collect(),
+                ak35: (0..n).map(|i| {
+                    if !v[i] {
+                        E::G1Affine::zero()
+                    } else {
+                        (hints[i].h3.into_group() + ak5[i]).into_affine()
+                    }
+                }).collect(),
                 ak4: hints.iter().zip(v.iter()).map(|(hint, &valid)| if valid { hint.h4 } else { E::G1Affine::zero() }).collect(),
-                ak5: ak5.iter().map(|x| x.into_affine()).collect(),
             },
             EncKey {
                 c: hints.iter().zip(v.iter()).filter(|(_, valid)| **valid).map(|(hint, _)| hint.h1).sum(),
@@ -222,9 +236,12 @@ impl<E: Pairing> Dealer<E> {
                 v: vec![true; n],
                 ak1: pks.clone(),
                 ak2: (0..n).map(|i| (pks[i] * (td.lagrange_basis_tau[i] - li_0)).into_affine()).collect(),
-                ak3: (0..n).map(|i| (pks[i] * ((td.lagrange_basis_tau[i] * td.lagrange_basis_tau[i] - td.lagrange_basis_tau[i]) / z_tau)).into_affine()).collect(),
+                ak35: (0..n).map(|i| {
+                    let qz3 = pks[i] * ((td.lagrange_basis_tau[i] * td.lagrange_basis_tau[i] - td.lagrange_basis_tau[i]) / z_tau);
+                    let qz5 = (c - pks[i] * td.lagrange_basis_tau[i]) * (td.lagrange_basis_tau[i] / z_tau);
+                    (qz3 + qz5).into_affine()
+                }).collect(),
                 ak4: (0..n).map(|i| (pks[i] * ((td.lagrange_basis_tau[i] - li_0) / td.powers_of_tau[1])).into_affine()).collect(),
-                ak5: (0..n).map(|i| ((c - pks[i] * td.lagrange_basis_tau[i]) * (td.lagrange_basis_tau[i] / z_tau)).into_affine()).collect(),
             },
             EncKey {
                 c,

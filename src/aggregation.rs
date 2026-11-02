@@ -36,8 +36,7 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     );
 
     let pk_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak1[i]).collect();
-    let qz1_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak3[i]).collect();
-    let qz2_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak5[i]).collect();
+    let qz_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak35[i]).collect();
     let qx_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak4[i]).collect();
     let qxt_s: Vec<E::G1Affine> = s.iter().map(|&i| ak.ak2[i]).collect();
 
@@ -49,8 +48,14 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     let gd = multi_evaluate::<E::ScalarField>(&w_s[1..].to_vec());
 
     // B(w^k) = -w^-k * g(1) / (1-w^k) / g'(w^k), but B(1) = 1
+    let mut b_denominators: Vec<E::ScalarField> = w_s[1..]
+        .iter()
+        .zip(gd.iter())
+        .map(|(&w, &g)| w * (w - E::ScalarField::ONE) * g)
+        .collect();
+    batch_inversion(&mut b_denominators);
     let mut b_s = vec![E::ScalarField::ONE];
-    b_s.extend(w_s[1..].iter().zip(gd.iter()).map(|(&w, &g)| g1 / w / (w-E::ScalarField::ONE) / g));
+    b_s.extend(b_denominators.iter().map(|&inverse| g1 * inverse));
     let b_s_bigint: Vec<<<E as Pairing>::ScalarField as PrimeField>::BigInt>
         = b_s.iter().map(|x| x.into_bigint()).collect();
 
@@ -61,10 +66,7 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     let apk = <E::G1 as VariableBaseMSM>::msm_bigint(&pk_s, &b_s_bigint) * inv_n_plus_one;
 
     // Step 3: Qz, Qx, Qxt
-    // TODO: combine ak3 and ak5 at preprocess
-    let qz1 = <E::G1 as VariableBaseMSM>::msm_bigint(&qz1_s, &b_s_bigint);
-    let qz2 = <E::G1 as VariableBaseMSM>::msm_bigint(&qz2_s, &b_s_bigint);
-    let qz = qz1 + qz2;
+    let qz = <E::G1 as VariableBaseMSM>::msm_bigint(&qz_s, &b_s_bigint);
     let qx = <E::G1 as VariableBaseMSM>::msm_bigint(&qx_s, &b_s_bigint);
     let qxt = <E::G1 as VariableBaseMSM>::msm_bigint(&qxt_s, &b_s_bigint);
 
@@ -97,8 +99,12 @@ pub fn aggregate<E: Pairing>(d: &Dealer<E>, ak: &AggrKey<E>,
     let bb = <E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &bbx.coeffs);
 
     // Step 7: Q0
-    let mut w_inv: Vec<E::ScalarField> = w_s[1..].iter().map(|&w| w - E::ScalarField::ONE).collect();
-    batch_inversion(&mut w_inv);
+    let w_inv: Vec<E::ScalarField> = b_denominators
+        .iter()
+        .zip(w_s[1..].iter())
+        .zip(gd.iter())
+        .map(|((&inverse, &w), &g)| inverse * w * g)
+        .collect();
     let mut q0_den = vec![w_inv.iter().sum()];
     q0_den.extend(w_inv);
     let q0_s: Vec<<<E as Pairing>::ScalarField as PrimeField>::BigInt>

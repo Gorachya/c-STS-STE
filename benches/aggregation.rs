@@ -65,9 +65,8 @@ fn bench_aggregation(c: &mut Criterion) {
             v: vec![false; party_count],
             ak1: public_keys.clone(),
             ak2: (0..party_count).map(|_| G1::rand(&mut rng).into_affine()).collect(),
-            ak3: (0..party_count).map(|_| G1::rand(&mut rng).into_affine()).collect(),
+            ak35: (0..party_count).map(|_| G1::rand(&mut rng).into_affine()).collect(),
             ak4: (0..party_count).map(|_| G1::rand(&mut rng).into_affine()).collect(),
-            ak5: (0..party_count).map(|_| G1::rand(&mut rng).into_affine()).collect(),
         };
         for id in &committee {
             aggregation_key.v[*id] = true;

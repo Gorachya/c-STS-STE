@@ -1,7 +1,7 @@
 use std::iter;
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM, pairing::Pairing, PrimeGroup};
-use ark_ff::{FftField, Field};
+use ark_ff::{FftField, Field, batch_inversion};
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, Evaluations, Radix2EvaluationDomain, univariate::DensePolynomial};
 use ark_std::Zero;
 
@@ -97,11 +97,18 @@ impl<E: Pairing> Member<E> {
 
         // h5 = [sk * L_i(tau)*L_j(tau)/Z(tau)]_1 for all j
         let cons = -li_tau * inv_total_plus_one;
+        let mut differences: Vec<E::ScalarField> = (0..n)
+            .filter(|&j| j != self.id)
+            .map(|j| d.w_domain[j] - wi)
+            .collect();
+        batch_inversion(&mut differences);
+        let mut inverse_index = 0;
         let h5: Vec<E::G1> = (0..n).map(
             |j| {
-                let wj = d.w_domain[j];
                 if j != self.id {
-                    self.key.mul_sk(cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * (wi / (wj-wi) * inv_total_plus_one))
+                    let coefficient = wi * differences[inverse_index] * inv_total_plus_one;
+                    inverse_index += 1;
+                    self.key.mul_sk(cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * coefficient)
                 } else {
                     E::G1::zero()
                 }
