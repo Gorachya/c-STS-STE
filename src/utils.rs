@@ -87,6 +87,24 @@ pub fn is_a_power_of_two(n: usize) -> bool {
 
 // Divide-and-conquer is significantly faster than multiply by order
 fn poly_on_points_zero_fast<F: PrimeField>(points: &Vec<F>, l: usize, r: usize, start: F) -> DensePolynomial<F> {
+    const DIRECT_CONVOLUTION_THRESHOLD: usize = 64;
+
+    if r - l + 1 <= DIRECT_CONVOLUTION_THRESHOLD {
+        let segment_start = if l == 0 { start } else { F::ONE };
+        let mut coefficients = vec![-points[l] * segment_start, segment_start];
+        for point in &points[l + 1..=r] {
+            let degree = coefficients.len();
+            let mut next = vec![F::ZERO; degree + 1];
+            next[0] = coefficients[0] * -*point;
+            for i in 1..degree {
+                next[i] = coefficients[i] * -*point + coefficients[i - 1];
+            }
+            next[degree] = coefficients[degree - 1];
+            coefficients = next;
+        }
+        return DensePolynomial::from_coefficients_vec(coefficients);
+    }
+
     if l == r {
         if l == 0 { return DensePolynomial::from_coefficients_vec(vec![-points[l] * start, start]); }
         else { return DensePolynomial::from_coefficients_vec(vec![-points[l], F::ONE]); }
@@ -122,6 +140,20 @@ mod tests {
         let polynomial = poly_on_points_zero::<Fr>(&Vec::new(), Fr::from(3u64));
 
         assert_eq!(polynomial.evaluate(&Fr::from(10u64)), Fr::from(3u64));
+    }
+
+    #[test]
+    fn polynomial_product_matches_evaluation_across_direct_threshold() {
+        let points = (1u64..=100).map(Fr::from).collect();
+        let start = Fr::from(7u64);
+        let polynomial = poly_on_points_zero::<Fr>(&points, start);
+
+        for x in [Fr::from(0u64), Fr::from(3u64), Fr::from(101u64)] {
+            let expected = (1u64..=100).fold(start, |value, point| {
+                value * (x - Fr::from(point))
+            });
+            assert_eq!(polynomial.evaluate(&x), expected);
+        }
     }
 
     #[test]

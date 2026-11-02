@@ -40,3 +40,7 @@ harness = false
 [[bench]]
 name = "ste"
 harness = false
+
+[[bench]]
+name = "poly_product"
+harness = false
