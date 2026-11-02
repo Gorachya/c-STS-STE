@@ -7,6 +7,28 @@ use ark_std::Zero;
 
 use crate::{bls::BLSKey, dealer::{Dealer, Hints}, utils};
 
+fn product_quotient_by_xn_minus_one<F: Field>(lhs: &[F], rhs: &[F], n: usize) -> Vec<F> {
+    assert!(n > 0);
+
+    // If (x^n - 1) divides lhs * rhs, then
+    // Q(x) = (lhs * rhs) / (x^n - 1).
+    // Comparing coefficients gives q_k = coefficient[x^(n+k)] of lhs * rhs.
+    let mut quotient = (0..n - 1).map(|k| {
+        let degree = n + k;
+        let mut coefficient = F::ZERO;
+        for i in 0..=degree {
+            let lhs_value = lhs.get(i).copied().unwrap_or(F::ZERO);
+            let rhs_value = rhs.get(degree - i).copied().unwrap_or(F::ZERO);
+            coefficient += lhs_value * rhs_value;
+        }
+        coefficient
+    }).collect::<Vec<_>>();
+    while quotient.last().is_some_and(|coefficient| coefficient.is_zero()) {
+        quotient.pop();
+    }
+    quotient
+}
+
 pub struct Member<E: Pairing> {
     pub id: usize,
     pub key: BLSKey<E>,
@@ -33,12 +55,6 @@ impl<E: Pairing> Member<E> {
         let inv_n = d.total_plus_1.inverse().unwrap();
         let wi_inv = d.w_domain[(n - self.id) % n];
 
-        // Z(x) = x^n - 1
-        let mut zx_coeffs = vec![E::ScalarField::zero(); n + 1];
-        zx_coeffs[0] = -E::ScalarField::ONE;
-        zx_coeffs[n] = E::ScalarField::ONE;
-        let zx = DensePolynomial::from_coefficients_vec(zx_coeffs);
-
         // L_i(x) = w^i/n * (x^n-1)/(x-w^i)
         //        = 1/n * [x^(n-1)(w^i) + x^(n-2)(w^i)^2 + ... + x(w^i)^(n-1) + (w^i)^n]
         let lag_coeffs: Vec<E::ScalarField> = iter::successors(Some(inv_n), |p| Some(*p * wi_inv)).take(n).collect();
@@ -48,8 +64,8 @@ impl<E: Pairing> Member<E> {
         let h1 = self.key.mul_sk(li_tau);
         let h2 = h1 - self.key.mul_sk(d.crs.0[0] * inv_n);
         
-        let h3_x = (&li_x * &li_x - &li_x) / &zx;
-        let h3 = self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &h3_x.coeffs));
+        let h3_coeffs = product_quotient_by_xn_minus_one(&li_x.coeffs, &li_x.coeffs, n);
+        let h3 = self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &h3_coeffs));
 
         let h4 = self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lag_coeffs[1..]));
 
@@ -58,8 +74,8 @@ impl<E: Pairing> Member<E> {
                 let wj_inv = d.w_domain[(n - j) % n];
                 let lag_coeffs_j: Vec<E::ScalarField> = iter::successors(Some(inv_n), |p| Some(*p * wj_inv)).take(n).collect();
                 let lj_x = DensePolynomial::from_coefficients_vec(lag_coeffs_j);
-                let lilj_x = (&li_x * &lj_x) / &zx;
-                self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lilj_x.coeffs))
+                let lilj_coeffs = product_quotient_by_xn_minus_one(&li_x.coeffs, &lj_x.coeffs, n);
+                self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lilj_coeffs))
             }
         ).collect();
 
@@ -168,4 +184,35 @@ pub fn lagrange_poly<F: FftField>(n: usize, i: usize) -> DensePolynomial<F> {
     let eval_form = Evaluations::from_vec_and_domain(evals, domain);
     // interpolated polynomial over the n points
     eval_form.interpolate()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_bls12_381::Fr;
+    use std::ops::Div;
+
+    #[test]
+    fn xn_minus_one_product_quotient_matches_dense_division() {
+        let lhs = DensePolynomial::from_coefficients_slice(&[
+            Fr::from(1u64),
+            Fr::from(1u64),
+            Fr::from(1u64),
+        ]);
+        let rhs = DensePolynomial::from_coefficients_slice(&[
+            Fr::from(-1i64),
+            Fr::from(1u64),
+        ]);
+        let divisor = DensePolynomial::from_coefficients_vec(vec![
+            Fr::from(-1i64),
+            Fr::from(0u64),
+            Fr::from(0u64),
+            Fr::from(1u64),
+        ]);
+
+        let optimized = product_quotient_by_xn_minus_one(&lhs.coeffs, &rhs.coeffs, 3);
+        let expected = (&lhs * &rhs).div(&divisor);
+
+        assert_eq!(optimized, expected.coeffs);
+    }
 }
