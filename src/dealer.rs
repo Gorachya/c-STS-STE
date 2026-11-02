@@ -1,7 +1,7 @@
 use std::iter;
 
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, ScalarMul, VariableBaseMSM, pairing::{Pairing, PairingOutput}};
-use ark_poly::{EvaluationDomain, Radix2EvaluationDomain, DenseUVPolynomial, univariate::DensePolynomial};
+use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_ff::{Field, batch_inversion};
 use ark_std::{UniformRand, One, Zero};
 
@@ -62,10 +62,6 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
 
     let inv_n = dealer.total_plus_1.inverse().unwrap();
     let wi_inv = dealer.w_domain[(n - id) % n];
-    let li_coeffs: Vec<E::ScalarField> = std::iter::successors(Some(inv_n), |p| Some(*p * wi_inv))
-        .take(n)
-        .collect();
-    let li = DensePolynomial::from_coefficients_vec(li_coeffs);
     let li_commit_g1 = dealer.lagrange_basis_commit.0[id].into_group();
     let li_commit_g2 = dealer.lagrange_basis_commit.1[id].into_group();
 
@@ -80,19 +76,6 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
         return false;
     }
 
-    let mut li_minus_constant_coeffs = li.coeffs.clone();
-    li_minus_constant_coeffs[0] -= inv_n;
-    let li_minus_constant = DensePolynomial::from_coefficients_vec(li_minus_constant_coeffs);
-
-    let li_div_x_coeffs = li_minus_constant.coeffs.iter().skip(1).copied().collect();
-    let li_div_x = DensePolynomial::from_coefficients_vec(li_div_x_coeffs);
-
-    let mut zx_coeffs = vec![E::ScalarField::zero(); n + 1];
-    zx_coeffs[0] = -E::ScalarField::ONE;
-    zx_coeffs[n] = E::ScalarField::ONE;
-    let zx = DensePolynomial::from_coefficients_vec(zx_coeffs);
-    let li_squared_minus_li_div_zx = (&li * &li - &li) / &zx;
-
     let random = E::ScalarField::rand(&mut thread_rng());
     let random_powers: Vec<E::ScalarField> =
         std::iter::successors(Some(E::ScalarField::ONE), |power| Some(*power * random))
@@ -103,25 +86,37 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
     hint_bases.push(hint.h3);
     hint_bases.push(hint.h4);
     let mut commitment_bases = vec![li_commit_g2.into_affine()];
-    commitment_bases.push(commit_g2(dealer, &li_minus_constant).into_affine());
-    commitment_bases.push(commit_g2(dealer, &li_squared_minus_li_div_zx).into_affine());
-    commitment_bases.push(commit_g2(dealer, &li_div_x).into_affine());
+    commitment_bases.push((li_commit_g2 - E::G2::generator() * inv_n).into_affine());
+    commitment_bases.push(E::G2::zero().into_affine());
+    commitment_bases.push(
+        (li_commit_g2 * wi_inv - dealer.crs.1[n - 1] * inv_n).into_affine(),
+    );
 
     let mut h5_groups = Vec::new();
+    let wi = dealer.w_domain[id];
+    let mut differences: Vec<E::ScalarField> = (0..n)
+        .filter(|&j| j != id)
+        .map(|j| dealer.w_domain[j] - wi)
+        .collect();
+    batch_inversion(&mut differences);
+
+    let cons = -(li_commit_g2 * inv_n);
+    let mut h5_commitments = Vec::with_capacity(n - 1);
+    let mut inverse_index = 0;
     for j in 0..n {
         if j == id {
             continue;
         }
-        let wj_inv = dealer.w_domain[(n - j) % n];
-        let lj_coeffs: Vec<E::ScalarField> = std::iter::successors(Some(inv_n), |p| Some(*p * wj_inv))
-            .take(n)
-            .collect();
-        let lj = DensePolynomial::from_coefficients_vec(lj_coeffs);
-        let lilj_div_zx = (&li * &lj) / &zx;
-        let commitment = commit_g2(dealer, &lilj_div_zx).into_affine();
+        let lj_commit_g2 = dealer.lagrange_basis_commit.1[j].into_group();
+        let coefficient = wi * differences[inverse_index] * inv_n;
+        inverse_index += 1;
+        let commitment = cons + (lj_commit_g2 - li_commit_g2) * coefficient;
         h5_groups.push(hint.h5[j]);
-        commitment_bases.push(commitment);
+        h5_commitments.push(commitment);
     }
+    let li_squared_minus_li_commitment = -h5_commitments.iter().sum::<E::G2>();
+    commitment_bases[2] = li_squared_minus_li_commitment.into_affine();
+    commitment_bases.extend(h5_commitments.into_iter().map(|commitment| commitment.into_affine()));
     hint_bases.extend(E::G1::normalize_batch(&mut h5_groups));
 
     let batched_hint =
@@ -134,10 +129,6 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
         [-batched_hint, pk.into_group()],
         [dealer.g2_generator_prepared.clone(), batched_commitment.into_affine().into()],
     )) == Some(PairingOutput::zero())
-}
-
-fn commit_g2<E: Pairing>(dealer: &Dealer<E>, polynomial: &DensePolynomial<E::ScalarField>) -> E::G2 {
-    <E::G2 as VariableBaseMSM>::msm_unchecked(&dealer.crs.1, &polynomial.coeffs)
 }
 
 impl<E: Pairing> Dealer<E> {
@@ -275,5 +266,25 @@ impl<E: Pairing> Dealer<E> {
                 z_prepared: self.z.into_affine().into(),
             }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_bls12_381::Bls12_381;
+    use crate::member::Member;
+
+    #[test]
+    fn optimized_hint_verify_accepts_lagrange_hints() {
+        type E = Bls12_381;
+
+        let (dealer, _) = Dealer::<E>::init_fast(3);
+        let members: Vec<_> = (1..=3).map(Member::<E>::new).collect();
+
+        for member in &members {
+            let hint = member.hint_gen_lagrange(&dealer);
+            assert!(hint_verify(&dealer, member.key.pk.into_affine(), &hint));
+        }
     }
 }
