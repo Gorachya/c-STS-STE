@@ -86,10 +86,11 @@ pub fn is_a_power_of_two(n: usize) -> bool {
 }
 
 // Divide-and-conquer is significantly faster than multiply by order
-fn poly_on_points_zero_fast<F: PrimeField>(points: &Vec<F>, l: usize, r: usize, start: F) -> DensePolynomial<F> {
-    const DIRECT_CONVOLUTION_THRESHOLD: usize = 64;
-
-    if r - l + 1 <= DIRECT_CONVOLUTION_THRESHOLD {
+fn poly_on_points_zero_fast<F: PrimeField>(
+    points: &Vec<F>, l: usize, r: usize, start: F,
+    direct_convolution_threshold: usize,
+) -> DensePolynomial<F> {
+    if r - l + 1 <= direct_convolution_threshold {
         let segment_start = if l == 0 { start } else { F::ONE };
         let mut coefficients = vec![-points[l] * segment_start, segment_start];
         for point in &points[l + 1..=r] {
@@ -110,9 +111,17 @@ fn poly_on_points_zero_fast<F: PrimeField>(points: &Vec<F>, l: usize, r: usize, 
         else { return DensePolynomial::from_coefficients_vec(vec![-points[l], F::ONE]); }
     }
     let m = (l + r) >> 1;
-    let lp = poly_on_points_zero_fast(points, l, m, start);
-    let rp = poly_on_points_zero_fast(points, m+1, r, start);
+    let lp = poly_on_points_zero_fast(points, l, m, start, direct_convolution_threshold);
+    let rp = poly_on_points_zero_fast(points, m+1, r, start, direct_convolution_threshold);
     &lp * &rp
+}
+
+pub fn poly_product_threshold() -> usize {
+    std::env::var("CSTE_POLY_THRESHOLD")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value: &usize| *value > 0)
+        .unwrap_or(64)
 }
 
 // start * prod (x-p) for p in points
@@ -120,7 +129,13 @@ pub fn poly_on_points_zero<F: PrimeField>(points: &Vec<F>, start: F) -> DensePol
     if points.is_empty() {
         return DensePolynomial::from_coefficients_vec(vec![start]);
     }
-    poly_on_points_zero_fast(points, 0, points.len()-1, start)
+    poly_on_points_zero_fast(
+        points,
+        0,
+        points.len() - 1,
+        start,
+        poly_product_threshold(),
+    )
 }
 
 #[cfg(test)]

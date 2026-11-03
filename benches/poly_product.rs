@@ -64,47 +64,33 @@ fn bench_poly_product(c: &mut Criterion) {
     let mut group = c.benchmark_group("polynomial product");
     group.sample_size(10);
 
-    for point_count in [1024usize, 2048, 4096, 8192] {
-        let points: Vec<Fr> = (0..point_count).map(|_| Fr::rand(&mut rng)).collect();
-        let start = Fr::rand(&mut rng);
-        let pure_fft = divide_and_conquer(&points, start);
+    const POINT_COUNT: usize = 4096;
+    let points: Vec<Fr> = (0..POINT_COUNT).map(|_| Fr::rand(&mut rng)).collect();
+    let start = Fr::rand(&mut rng);
+    let pure_fft = divide_and_conquer(&points, start);
+    assert_eq!(pure_fft.coeffs, direct_product(&points, start).coeffs);
 
-        if point_count <= 4096 {
-            assert_eq!(pure_fft.coeffs, direct_product(&points, start).coeffs);
-        }
-
-        let mut threshold = 8usize;
-        while threshold <= point_count {
-            let hybrid = multiply_segment(&points, 0, point_count, start, threshold);
-            assert_eq!(pure_fft.coeffs, hybrid.coeffs);
-
-            group.bench_with_input(
-                BenchmarkId::new(format!("hybrid/{point_count}/threshold={threshold}"), point_count),
-                &threshold,
-                |b, &threshold| {
-                    b.iter(|| {
-                        black_box(multiply_segment(
-                            black_box(&points),
-                            0,
-                            point_count,
-                            black_box(start),
-                            threshold,
-                        ));
-                    });
-                },
-            );
-            threshold *= 2;
-        }
+    let mut threshold = 8usize;
+    while threshold <= POINT_COUNT {
+        let hybrid = multiply_segment(&points, 0, POINT_COUNT, start, threshold);
+        assert_eq!(pure_fft.coeffs, hybrid.coeffs);
 
         group.bench_with_input(
-            BenchmarkId::new(format!("fft/{point_count}"), point_count),
-            &point_count,
-            |b, &point_count| {
+            BenchmarkId::new(format!("hybrid/{POINT_COUNT}/threshold={threshold}"), threshold),
+            &threshold,
+            |b, &threshold| {
                 b.iter(|| {
-                    black_box(divide_and_conquer(black_box(&points[..point_count]), black_box(start)));
+                    black_box(multiply_segment(
+                        black_box(&points),
+                        0,
+                        POINT_COUNT,
+                        black_box(start),
+                        threshold,
+                    ));
                 });
             },
         );
+        threshold *= 2;
     }
 
     group.finish();
