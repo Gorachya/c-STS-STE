@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableDelayedExpansion
+setlocal
 
 if /I not "%~1"=="fast" if /I not "%~1"=="full" (
     echo Usage: %~nx0 fast^|full
@@ -14,6 +14,24 @@ IF EXIST "target\criterion" (
     RMDIR /S /Q "target\criterion"
 )
 
+set "PYTHON="
+where python >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    python --version >nul 2>nul
+    if not errorlevel 1 set "PYTHON=python"
+)
+if "%PYTHON%"=="" (
+    where py >nul 2>nul
+    if %ERRORLEVEL% EQU 0 (
+        py -3 --version >nul 2>nul
+        if not errorlevel 1 set "PYTHON=py -3"
+    )
+)
+if "%PYTHON%"=="" (
+    echo Python is required to determine the optimal polynomial threshold!
+    exit /b 1
+)
+
 echo ========================================
 echo    Step 1: Selecting poly threshold
 echo           Scale: 4096
@@ -26,35 +44,29 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 type "%POLY_LOG%"
-for /f "usebackq delims=" %%i in (`python find-poly-threshold.py "%POLY_LOG%"`) do set "CSTE_POLY_THRESHOLD=%%i"
+for /f "usebackq delims=" %%i in (`%PYTHON% find-poly-threshold.py "%POLY_LOG%"`) do set "CSTE_POLY_THRESHOLD=%%i"
 if "%CSTE_POLY_THRESHOLD%"=="" (
     echo Failed to determine the optimal polynomial threshold!
     exit /b 1
 )
 echo Optimal poly product threshold: %CSTE_POLY_THRESHOLD%
-echo Clearing poly-product benchmark data before full benchmarks...
-IF EXIST "target\criterion\polynomial product" (
-    RMDIR /S /Q "target\criterion\polynomial product"
-)
 
 echo.
 echo ========================================
 echo       Step 2: Running cargo bench
 echo       Mode: %MODE%
 echo ========================================
-for %%b in (epoch hints preprocess bls aggregation ste) do (
-    cargo bench --bench %%b
-    if !ERRORLEVEL! NEQ 0 (
-        echo Benchmark %%b failed!
-        exit /b !ERRORLEVEL!
-    )
+cargo bench
+if %ERRORLEVEL% NEQ 0 (
+    echo Cargo bench failed!
+    exit /b %ERRORLEVEL%
 )
 
 echo.
 echo ========================================
 echo  Step 3: Generating benchmark results
 echo ========================================
-python generate-table.py %MODE%
+%PYTHON% generate-table.py %MODE%
 if %ERRORLEVEL% NEQ 0 (
     echo Python script failed!
     exit /b %ERRORLEVEL%

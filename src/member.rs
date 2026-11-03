@@ -2,7 +2,7 @@ use std::iter;
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM, pairing::Pairing, PrimeGroup};
 use ark_ff::{FftField, Field, batch_inversion};
-use ark_poly::{DenseUVPolynomial, EvaluationDomain, Evaluations, Radix2EvaluationDomain, univariate::DensePolynomial};
+use ark_poly::{EvaluationDomain, Evaluations, Radix2EvaluationDomain, univariate::DensePolynomial};
 use ark_std::Zero;
 
 use crate::{bls::BLSKey, dealer::{Dealer, Hints}, utils};
@@ -16,10 +16,13 @@ fn product_quotient_by_xn_minus_one<F: Field>(lhs: &[F], rhs: &[F], n: usize) ->
     let mut quotient = (0..n - 1).map(|k| {
         let degree = n + k;
         let mut coefficient = F::ZERO;
-        for i in 0..=degree {
-            let lhs_value = lhs.get(i).copied().unwrap_or(F::ZERO);
-            let rhs_value = rhs.get(degree - i).copied().unwrap_or(F::ZERO);
-            coefficient += lhs_value * rhs_value;
+        let first = degree.saturating_sub(rhs.len().saturating_sub(1));
+        let last = degree.min(lhs.len().saturating_sub(1));
+        for i in first..=last {
+            let j = degree - i;
+            if j < rhs.len() {
+                coefficient += lhs[i] * rhs[j];
+            }
         }
         coefficient
     }).collect::<Vec<_>>();
@@ -58,13 +61,12 @@ impl<E: Pairing> Member<E> {
         // L_i(x) = w^i/n * (x^n-1)/(x-w^i)
         //        = 1/n * [x^(n-1)(w^i) + x^(n-2)(w^i)^2 + ... + x(w^i)^(n-1) + (w^i)^n]
         let lag_coeffs: Vec<E::ScalarField> = iter::successors(Some(inv_n), |p| Some(*p * wi_inv)).take(n).collect();
-        let li_x = DensePolynomial::from_coefficients_vec(lag_coeffs.clone());
         let li_tau = <E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lag_coeffs);
 
         let h1 = self.key.mul_sk(li_tau);
         let h2 = h1 - self.key.mul_sk(d.crs.0[0] * inv_n);
         
-        let h3_coeffs = product_quotient_by_xn_minus_one(&li_x.coeffs, &li_x.coeffs, n);
+        let h3_coeffs = product_quotient_by_xn_minus_one(&lag_coeffs, &lag_coeffs, n);
         let h3 = self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &h3_coeffs));
 
         let h4 = self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lag_coeffs[1..]));
@@ -73,8 +75,10 @@ impl<E: Pairing> Member<E> {
             |j| {
                 let wj_inv = d.w_domain[(n - j) % n];
                 let lag_coeffs_j: Vec<E::ScalarField> = iter::successors(Some(inv_n), |p| Some(*p * wj_inv)).take(n).collect();
-                let lj_x = DensePolynomial::from_coefficients_vec(lag_coeffs_j);
-                let lilj_coeffs = product_quotient_by_xn_minus_one(&li_x.coeffs, &lj_x.coeffs, n);
+                if j == self.id {
+                    return h3;
+                }
+                let lilj_coeffs = product_quotient_by_xn_minus_one(&lag_coeffs, &lag_coeffs_j, n);
                 self.key.mul_sk(<E::G1 as VariableBaseMSM>::msm_unchecked(&d.crs.0, &lilj_coeffs))
             }
         ).collect();
@@ -93,7 +97,7 @@ impl<E: Pairing> Member<E> {
                 E::G1::generator(),
                 self.key.pk,
                 li_tau,
-                h1,
+                hint_affine[0].into_group(),
                 self.key.sk,
             ),
         }
@@ -122,12 +126,13 @@ impl<E: Pairing> Member<E> {
             .collect();
         batch_inversion(&mut differences);
         let mut inverse_index = 0;
+        let wi_over_inv_total_plus_one = self.key.sk * wi * inv_total_plus_one;
         let h5: Vec<E::G1> = (0..n).map(
             |j| {
                 if j != self.id {
-                    let coefficient = self.key.sk * wi * differences[inverse_index] * inv_total_plus_one;
+                    let difference = differences[inverse_index];
                     inverse_index += 1;
-                    cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * coefficient
+                    cons + (d.lagrange_basis_commit.0[j] - d.lagrange_basis_commit.0[self.id]) * (wi_over_inv_total_plus_one * difference)
                 } else {
                     E::G1::zero()
                 }
@@ -160,7 +165,7 @@ impl<E: Pairing> Member<E> {
                 E::G1::generator(),
                 self.key.pk,
                 li_tau,
-                h1,
+                hint_affine[0].into_group(),
                 self.key.sk,
             ),
         }
@@ -190,6 +195,7 @@ pub fn lagrange_poly<F: FftField>(n: usize, i: usize) -> DensePolynomial<F> {
 mod tests {
     use super::*;
     use ark_bls12_381::Fr;
+    use ark_poly::DenseUVPolynomial;
     use std::ops::Div;
 
     #[test]

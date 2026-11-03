@@ -22,7 +22,7 @@ def main() -> int:
 
     samples = {}
     benchmark_pattern = re.compile(
-        r"polynomial product/hybrid/4096/threshold=(\d+)/4096"
+        r"polynomial product/hybrid/4096/threshold=(\d+)/\d+"
     )
     timing_pattern = re.compile(
         r"time:\s*\[\s*([\d.]+)\s*(ns|us|µs|ms|s)\s+"

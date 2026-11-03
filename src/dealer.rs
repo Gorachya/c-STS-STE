@@ -103,12 +103,13 @@ pub fn hint_verify<E: Pairing>(dealer: &Dealer<E>, pk: E::G1Affine, hint: &Hints
     let cons = -(li_commit_g2 * inv_n);
     let mut h5_commitments = Vec::with_capacity(n - 1);
     let mut inverse_index = 0;
+    let wi_inv_n = wi * inv_n;
     for j in 0..n {
         if j == id {
             continue;
         }
         let lj_commit_g2 = dealer.lagrange_basis_commit.1[j].into_group();
-        let coefficient = wi * differences[inverse_index] * inv_n;
+        let coefficient = wi_inv_n * differences[inverse_index];
         inverse_index += 1;
         let commitment = cons + (lj_commit_g2 - li_commit_g2) * coefficient;
         h5_groups.push(hint.h5[j]);
@@ -169,16 +170,18 @@ impl<E: Pairing> Dealer<E> {
 
         let lagrange_basis_commit_g1 = g.batch_mul(&lagrange_basis_tau);
         let lagrange_basis_commit_g2 = h.batch_mul(&lagrange_basis_tau);
+        let crs_g1 = g.batch_mul(&powers_of_tau);
+        let crs_g2 = h.batch_mul(&powers_of_tau);
         let lagrange_basis_zero_pairing =
-            E::pairing(lagrange_basis_commit_g1[0], E::G2::generator());
-        let g2_generator_prepared: E::G2Prepared = E::G2Affine::from(E::G2::generator()).into();
-        let crs_g2_tau_prepared = h * tau;
+            E::pairing(lagrange_basis_commit_g1[0], crs_g2[0]);
+        let g2_generator_prepared: E::G2Prepared = crs_g2[0].into();
+        let crs_g2_tau_prepared = crs_g2[1].into_group();
         let crs_g2_tau_minus_one_prepared = crs_g2_tau_prepared.clone() - h;
 
         (
             Self {
                 total_plus_1,
-                crs: (g.batch_mul(&powers_of_tau), h.batch_mul(&powers_of_tau)),
+                crs: (crs_g1, crs_g2),
                 lagrange_basis_commit: (lagrange_basis_commit_g1, lagrange_basis_commit_g2),
                 w_domain: w_domain_elements,
                 z: E::G2::generator() * tau_power_total_plus_1_minus_1,
@@ -206,7 +209,7 @@ impl<E: Pairing> Dealer<E> {
                 continue;
             }
             for j in 0..n {
-                if i == j { continue; }
+                if i == j || !v[j] { continue; }
                 ak5[j] += hints[i].h5[j];
             }
         }

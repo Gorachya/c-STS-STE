@@ -41,15 +41,16 @@ impl<E: Pairing> BLSKey<E> {
     pub fn sign<H: HashToCurve<E::G2>>(&self, msg: &Vec<u8>, hasher: &H) -> BLSSignature<E> {
         let hash_msg = utils::hash_g2::<E, H>(msg, hasher);
         let signature = hash_msg * self.sk;
+        let signature_affine = signature.into_affine();
         let proof = utils::eq_dl_prove(
             E::G1::generator(),
             self.pk,
             hash_msg,
-            signature,
+            signature_affine.into_group(),
             self.sk,
         );
         BLSSignature {
-            signature: signature.into_affine(),
+            signature: signature_affine,
             proof,
         }
     }

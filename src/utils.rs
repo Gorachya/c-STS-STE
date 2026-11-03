@@ -95,13 +95,13 @@ fn poly_on_points_zero_fast<F: PrimeField>(
         let mut coefficients = vec![-points[l] * segment_start, segment_start];
         for point in &points[l + 1..=r] {
             let degree = coefficients.len();
-            let mut next = vec![F::ZERO; degree + 1];
-            next[0] = coefficients[0] * -*point;
-            for i in 1..degree {
-                next[i] = coefficients[i] * -*point + coefficients[i - 1];
+            let trailing = coefficients[degree - 1];
+            coefficients.push(F::ZERO);
+            for i in (1..degree).rev() {
+                coefficients[i] = coefficients[i] * -*point + coefficients[i - 1];
             }
-            next[degree] = coefficients[degree - 1];
-            coefficients = next;
+            coefficients[0] = coefficients[0] * -*point;
+            coefficients[degree] = trailing;
         }
         return DensePolynomial::from_coefficients_vec(coefficients);
     }

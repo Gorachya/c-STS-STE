@@ -14,9 +14,16 @@ if [ -d "target/criterion" ]; then
     rm -rf target/criterion
 fi
 
-PYTHON=python3
-if ! command -v python3 &>/dev/null; then
-    PYTHON=python
+PYTHON=
+for candidate in python python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" --version >/dev/null 2>&1; then
+        PYTHON="$candidate"
+        break
+    fi
+done
+if [ -z "$PYTHON" ]; then
+    echo "Python is required to determine the optimal polynomial threshold." >&2
+    exit 1
 fi
 
 echo "========================================"
@@ -25,23 +32,22 @@ echo "          Scale: 4096"
 echo "========================================"
 POLY_LOG="$(mktemp)"
 cargo bench --bench poly_product | tee "$POLY_LOG"
-CSTE_POLY_THRESHOLD="$("$PYTHON" find-poly-threshold.py "$POLY_LOG")"
+CSTE_POLY_THRESHOLD="$("$PYTHON" find-poly-threshold.py "$POLY_LOG")" || {
+    echo "Failed to determine the optimal polynomial threshold." >&2
+    exit 1
+}
 if [ -z "$CSTE_POLY_THRESHOLD" ]; then
     echo "Failed to determine the optimal polynomial threshold!" >&2
     exit 1
 fi
 export CSTE_POLY_THRESHOLD
 echo "Optimal poly product threshold: $CSTE_POLY_THRESHOLD"
-echo "Clearing poly-product benchmark data before full benchmarks..."
-rm -rf target/criterion/"polynomial product"
 
 echo "========================================"
 echo "      Step 2: Running cargo bench       "
 echo "      Mode: $MODE"
 echo "========================================"
-for bench in epoch hints preprocess bls aggregation ste; do
-    cargo bench --bench "$bench"
-done
+cargo bench
 
 echo ""
 echo "========================================"
